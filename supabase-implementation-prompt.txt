@@ -1,0 +1,35 @@
+Analyze the Capire-app project's Supabase implementation status and create a detailed plan for converting mock data implementations to actual Supabase queries.
+
+Current Status:
+- Supabase client is properly configured in src/services/supabase.ts
+- Environment variables are set correctly (.env file)
+- Authentication screens (LoginScreen, RegisterScreen, etc.) properly use Supabase for auth
+- All data-displaying screens currently use hardcoded mock data instead of Supabase queries
+
+Screens needing conversion from mock data to Supabase:
+1. src/screens/student/SearchScreen.tsx - mock capstone data for search results
+2. src/screens/student/CapstoneDetailScreen.tsx - mock capstone data for details
+3. src/screens/student/BookmarksScreen.tsx - mock bookmark data
+4. src/screens/student/DashboardScreen.tsx - mock stats, quick actions, recent activities
+5. src/screens/faculty/TopicReviewScreen.tsx - mock topic data for review
+6. src/screens/student/OriginalityCheckerScreen.tsx - mock originality check results
+
+Database schema to implement (provided by user):
+- capstone_projects table (id, title, abstract, author, year, department, tags, created_at, updated_at)
+- users table (id, email, full_name, role, department, student_id, faculty_id, created_at, updated_at)
+- bookmarks table (id, user_id, project_id, created_at)
+- chat_messages table (id, sender_id, receiver_id, message, project_id, is_read, created_at)
+- search_logs table (id, user_id, query, results_count, clicked_result_id, timestamp)
+
+For each screen, specify:
+1. What Supabase queries need to be implemented
+2. What data needs to be fetched from which tables
+3. Any relationships/joins needed
+4. Loading/error states to handle
+5. How to replace the mock data implementation
+
+Create a prioritized implementation plan considering:
+- Which screens are most critical for MVP
+- Dependencies between screens
+- Authentication requirements (some screens need user context)
+- Complexity of queries needed
