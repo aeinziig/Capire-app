@@ -1,0 +1,146 @@
+## Capire-app Supabase Implementation Plan
+
+### Current Status Analysis
+✅ **Supabase Client**: Properly configured in `src/services/supabase.ts` with environment variables
+✅ **Authentication**: Auth screens correctly use Supabase for user operations
+❌ **Data Layer**: All data-displaying screens use mock data instead of Supabase queries
+
+### Screens Requiring Database Integration
+1. **SearchScreen.tsx** - Capstone search results
+2. **CapstoneDetailScreen.tsx** - Individual capstone details
+3. **BookmarksScreen.tsx** - User's bookmarked projects
+4. **DashboardScreen.tsx** - Stats, quick actions, recent activities
+5. **TopicReviewScreen.tsx** (Faculty) - Pending topics for review
+6. **OriginalityCheckerScreen.tsx** - Originality check results
+
+### Database Schema (Ready for Implementation)
+- `capstone_projects`: id, title, abstract, author, year, department, tags[], created_at, updated_at
+- `users`: id, email, full_name, role, department, student_id, faculty_id, created_at, updated_at
+- `bookmarks`: id, user_id, project_id, created_at (unique constraint on user_id+project_id)
+- `chat_messages`: id, sender_id, receiver_id, message, project_id, is_read, created_at
+- `search_logs`: id, user_id, query, results_count, clicked_result_id, timestamp
+
+### Implementation Plan by Screen Priority
+
+#### **PHASE 1: CORE FUNCTIONALITY** (MVP Critical)
+**1. SearchScreen.tsx** (High Priority)
+- **Query**: `supabase.from('capstone_projects').select('*').textSearch('title abstract', searchQuery)`
+- **Filters**: Add department/year filters as `.eq()` clauses
+- **Sorting**: Add `.order()` based on sortBy parameter
+- **Dependencies**: None (public data)
+- **Loading States**: Already implemented, just replace mock data source
+
+**2. CapstoneDetailScreen.tsx** (High Priority)
+- **Query**: `supabase.from('capstone_projects').select('*').eq('id', capstoneId).single()`
+- **Parameters**: Uses route param `capstoneId`
+- **Dependencies**: Requires authenticated user for bookmark check
+- **Related Query**: Check bookmarks: `supabase.from('bookmarks').select('*').eq('user_id', userId).eq('project_id', capstoneId)`
+
+**3. BookmarksScreen.tsx** (High Priority)
+- **Query**:
+```javascript
+supabase.from('bookmarks')
+  .select(`
+    id,
+    capstone_projects!inner (
+      id, title, author, department, year, originalityScore, imageUrl
+    )
+  `)
+  .eq('user_id', userId)
+```
+- **Dependencies**: Requires authenticated user context
+- **Loading States**: Show empty state when no bookmarks
+
+#### **PHASE 2: USER INTERACTIONS**
+**4. DashboardScreen.tsx** (Medium Priority)
+- **Stats Queries** (all user-specific):
+  - Capstones Reviewed: Count of interacted projects (would need interaction tracking table)
+  - Originality Checks: Count from originality_checks table (to be created)
+  - Bookmarked Items: Count from bookmarks table
+  - Research Hours: Sum from activity_logs table (to be created)
+- **Quick Actions**: Static - no DB needed
+- **Recent Activity**: Query from activity_logs table (to be created) with joins to capstone_projects
+- **Dependencies**: Requires authenticated user
+- **Note**: May require new tables for tracking interactions
+
+**5. TopicReviewScreen.tsx** (Faculty) (Medium Priority)
+- **Query**:
+```javascript
+supabase.from('capstone_projects')
+  .select('*')
+  .eq('status', 'pending')  // Assuming status column added
+  .order('created_at', { ascending: false })
+```
+- **Dependencies**: Requires faculty role verification
+- **Mutations**: Approve/reject via UPDATE on capstone_projects.status
+- **Note**: Requires adding status column to capstone_projects
+
+#### **PHASE 3: SPECIALIZED FEATURES**
+**6. OriginalityCheckerScreen.tsx** (Lower Priority)
+- **Current Approach**: Simulated API call
+- **Recommended**: Create Supabase Edge Function for originality checking
+- **Flow**:
+  1. Upload text to storage bucket
+  2. Call edge function with text
+  3. Store results in originality_checks table
+  4. Return results to frontend
+- **Table Needed**: `originality_checks` with fields for scores, similarity sources, etc.
+- **Dependencies**: Requires authenticated user, storage setup
+
+### Technical Implementation Guidelines
+
+#### Query Patterns to Use
+- **SELECT**: Always specify columns instead of `*` when possible
+- **FILTERS**: Use `.eq()`, `.neq()`, `.gt()`, `.lt()`, `.like()`, `.textSearch()`
+- **SORTING**: `.order(column, { ascending: false })`
+- **LIMITING**: `.range(start, end)` or `.limit(count)`
+- **JOINS**: Use Supabase relation syntax: `table!inner(column)` or `table!left(column)`
+- **REAL-TIME**: Use `supabase.channel().on('postgres_changes', ...)` for live updates
+
+#### Error Handling Pattern
+```javascript
+const { data, error } = await supabase
+  .from('table')
+  .select('*')
+  .eq('id', someId);
+
+if (error) {
+  setError(error.message);
+  return;
+}
+// Process data
+```
+
+#### Loading States
+- Show skeleton loaders while data fetches
+- Handle empty states gracefully
+- Provide retry mechanism for failed requests
+
+#### Authentication Requirements
+- Screens needing user context: Get user from `supabase.auth.getUser()`
+- Protect routes: Redirect unauthenticated users to login
+- Role-based access: Check `user.role` for faculty/student specific features
+
+### Dependencies and Ordering
+1. **Setup Phase**: Run SQL schema in Supabase editor
+2. **Phase 1**: Implement Search, CapstoneDetail, Bookmarks (independent of complex user data)
+3. **Phase 2**: Implement Dashboard and TopicReview (require user auth)
+4. **Phase 3**: Implement Originality Checker (requires backend function)
+
+### Estimated Effort
+- **SearchScreen**: 2-3 hours
+- **CapstoneDetailScreen**: 3-4 hours (with bookmark check)
+- **BookmarksScreen**: 2-3 hours
+- **DashboardScreen**: 4-6 hours (may require new tables)
+- **TopicReviewScreen**: 3-4 hours
+- **OriginalityCheckerScreen**: 6-8 hours (requires edge function)
+
+### Success Criteria
+- [ ] All mock data replaced with live Supabase queries
+- [ ] Proper loading/error states implemented
+- [ ] Authentication protected where required
+- [ ] Data displays correctly matching UI designs
+- [ ] No console errors related to Supabase calls
+- [ ] Performance acceptable (<2s for data fetching)
+
+This plan provides a structured approach to migrate from mock data to a production-ready Supabase backend while maintaining MVP focus and managing complexity.

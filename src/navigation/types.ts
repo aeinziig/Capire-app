@@ -1,0 +1,34 @@
+export type RootParamList = {
+  Splash: undefined;
+  Login: undefined;
+  Register: undefined;
+  ForgotPassword: undefined;
+  OTPVerification: undefined;
+  MainTabs: undefined;
+  Dashboard: undefined;
+  Search: undefined;
+  CapstoneDetail: { capstoneId: number };
+  OriginalityChecker: undefined;
+  Bookmarks: undefined;
+  TopicReview: undefined;
+  Chatbot: undefined;
+  Messages: undefined;
+  ChatConversation: { conversation: { id: string; name: string; avatar?: string } };
+  OwnProfile: undefined;
+  OtherUserProfile: { userId: string };
+  CitationBottomSheet: { sourceData: {
+    type: string;
+    title: string;
+    author?: string;
+    year?: string;
+    journal?: string;
+    volume?: string;
+    issue?: string;
+    pages?: string;
+    publisher?: string;
+    url?: string;
+    doi?: string;
+    institution?: string;
+    conference?: string;
+  } };
+};
