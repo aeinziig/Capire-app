@@ -56,7 +56,7 @@ const RegisterScreen: React.FC = () => {
       });
 
       if (signUpError) throw signUpError;
-      navigation.navigate('OTPVerification');
+      navigation.navigate('OTPVerification', { email: email.trim().toLowerCase() });
     } catch (err: unknown) {
       setError(mapAuthError(err));
     } finally {
