@@ -2,8 +2,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 // @ts-ignore
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { sanitizeHtml, isValidEmail, validatePassword, validateName } from './middleware/sanitizeInput.ts'
-import { rateLimitMiddleware } from './middleware/rateLimiter.ts'
+import { rateLimitMiddleware } from '../middleware/rateLimiter.ts'
 
 // @ts-ignore
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!
@@ -12,26 +11,39 @@ const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-// Rate limiter middleware using IP address as key
+const STOP_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'has', 'have', 'in', 'into',
+  'is', 'it', 'of', 'on', 'or', 'that', 'the', 'their', 'this', 'to', 'using', 'was', 'were',
+  'while', 'with',
+])
+
 const checkRateLimit = rateLimitMiddleware((req: any) => {
-  // Try to get IP from various headers (common in cloud environments)
   return req.headers.get('x-forwarded-for') ||
-         req.headers.get('x-real-ip') ||
-         req.headers.get('remote-addr') ||
-         'unknown-ip'
+    req.headers.get('x-real-ip') ||
+    req.headers.get('remote-addr') ||
+    'unknown-ip'
 })
 
-/**
- * Check originality of text using plagiarism detection logic
- * In a production environment, this would integrate with a service like:
- * - Copyleaks API
- * - Turnitin API
- * - Grammarly Business API
- * - Or open-source alternatives like PlagiarismCheck.org, etc.
- */
+type CapstoneRow = {
+  id: string
+  title: string | null
+  author: string | null
+  year: number | null
+  abstract: string | null
+}
+
+type SimilaritySource = {
+  id: number
+  title: string
+  author: string
+  year: string
+  similarityPercentage: number
+  matchedText: string
+  sourceText: string
+}
+
 // @ts-ignore
 serve(async (req: any) => {
-  // Apply rate limiting
   const rateLimitResponse = checkRateLimit(req)
   if (rateLimitResponse) {
     return rateLimitResponse
@@ -40,278 +52,279 @@ serve(async (req: any) => {
   try {
     const { text, file_path, user_id } = await req.json()
 
-    // Validate input
     if (!text && !file_path) {
-      return new Response(
-        JSON.stringify({ error: 'Either text or file_path must be provided' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      )
+      return json({ error: 'Either text or file_path must be provided' }, 400)
     }
 
-    // Validate text if provided
     if (text !== undefined && text !== null) {
       if (typeof text !== 'string') {
-        return new Response(
-          JSON.stringify({ error: 'Text must be a string' }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        )
+        return json({ error: 'Text must be a string' }, 400)
       }
       if (text.length > 10000) {
-        return new Response(
-          JSON.stringify({ error: 'Text too long (max 10,000 characters)' }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        )
+        return json({ error: 'Text too long (max 10,000 characters)' }, 400)
       }
     }
 
-    // Validate file_path if provided
     if (file_path !== undefined && file_path !== null) {
       if (typeof file_path !== 'string') {
-        return new Response(
-          JSON.stringify({ error: 'File path must be a string' }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        )
+        return json({ error: 'File path must be a string' }, 400)
       }
       if (file_path.length > 2048) {
-        return new Response(
-          JSON.stringify({ error: 'File path too long (max 2,048 characters)' }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        )
+        return json({ error: 'File path too long (max 2,048 characters)' }, 400)
       }
       if (file_path.includes('..')) {
-        return new Response(
-          JSON.stringify({ error: 'File path must not contain directory traversal sequences' }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        )
+        return json({ error: 'File path must not contain directory traversal sequences' }, 400)
       }
     }
 
-    // Validate user_id
     if (!user_id || typeof user_id !== 'string') {
-      return new Response(
-        JSON.stringify({ error: 'User ID is required and must be a string' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      )
+      return json({ error: 'User ID is required and must be a string' }, 400)
     }
     if (user_id.includes('/') || user_id.includes('\\')) {
-      return new Response(
-        JSON.stringify({ error: 'User ID must not contain path separators' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      )
+      return json({ error: 'User ID must not contain path separators' }, 400)
     }
 
-    // If file_path is provided, we would download and extract text from the file
-    // For this implementation, we'll work with the provided text parameter
-    // In a complete implementation, you would:
-    // 1. If file_path exists, download file from Supabase Storage
-    // 2. Extract text based on file type (PDF, DOC, TXT, etc.)
-    // 3. Use that extracted text for originality checking
-    let contentToCheck = text || ''
+    const contentToCheck = await resolveContentToCheck(text, file_path)
+    if (!contentToCheck.trim()) {
+      return json({ error: 'No readable text was found in the provided content.' }, 400)
+    }
 
-    // TODO: Implement file text extraction when file_path is provided
-    // Example:
-    // if (file_path) {
-    //   const { data: fileData, error: fileError } = await supabase
-    //     .storage
-    //     .from('originality-checks')
-    //     .download(file_path)
-    //
-    //   if (fileError) throw fileError
-    //
-    //   // Extract text based on file extension
-    //   const fileExtension = file_path.split('.').pop()?.toLowerCase()
-    //   switch (fileExtension) {
-    //     case 'pdf':
-    //       // Use PDF text extraction library
-    //       contentToCheck = await extractTextFromPDF(fileData)
-    //       break
-    //     case 'doc':
-    //     case 'docx':
-    //       // Use DOC text extraction
-    //       contentToCheck = await extractTextFromDoc(fileData)
-    //       break
-    //     case 'txt':
-    //       contentToCheck = await fileData.text()
-    //       break
-    //     default:
-    //       throw new Error('Unsupported file type')
-    //   }
-    // }
+    const { data: capstones, error: capstoneError } = await supabase
+      .from('capstone_projects')
+      .select('id, title, author, year, abstract')
+      .not('abstract', 'is', null)
 
-    // Simulate processing delay for realism
-    await new Promise(resolve => setTimeout(resolve, 1500))
+    if (capstoneError) {
+      throw capstoneError
+    }
 
-    // Analyze the text to generate a more realistic originality score
-    // This is a simplified mock - in reality, you'd send to plagiarism service
-    const analysisResult = analyzeTextForOriginality(contentToCheck)
-
-    return new Response(
-      JSON.stringify({
-        originalityScore: analysisResult.originalityScore,
-        similaritySources: analysisResult.similaritySources,
-        highlightedText: analysisResult.highlightedText
-      }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    const analysisResult = analyzeAgainstCapstones(
+      contentToCheck,
+      ((capstones ?? []) as CapstoneRow[]).filter((item) => (item.abstract || item.title)?.trim())
     )
+
+    return json({
+      originalityScore: analysisResult.originalityScore,
+      similaritySources: analysisResult.similaritySources,
+      highlightedText: contentToCheck,
+    })
   } catch (error) {
-    return new Response(
-      JSON.stringify({ error: (error as any).message }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    )
+    return json({ error: (error as any).message }, 500)
   }
 })
 
-/**
- * Analyze text and return originality assessment
- * This is a mock implementation that simulates what a real plagiarism checker would do
- * @param text The text to analyze
- * @returns Object with originalityScore, similaritySources, and highlightedText
- */
-function analyzeTextForOriginality(text: string) {
-  // Handle empty text
-  if (!text || text.trim() === '') {
-    return {
-      originalityScore: 0,
-      similaritySources: [],
-      highlightedText: ''
+function json(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+async function resolveContentToCheck(text?: string, filePath?: string): Promise<string> {
+  if (text?.trim()) {
+    return text.trim()
+  }
+
+  if (!filePath) {
+    return ''
+  }
+
+  const { data: fileData, error: fileError } = await supabase
+    .storage
+    .from('originality-checks')
+    .download(filePath)
+
+  if (fileError) {
+    throw fileError
+  }
+
+  const extension = filePath.split('.').pop()?.toLowerCase() || ''
+  if (extension === 'txt') {
+    return (await fileData.text()).trim()
+  }
+
+  if (extension === 'pdf') {
+    return extractPdfText(await fileData.arrayBuffer()).trim()
+  }
+
+  throw new Error('Only TXT and text-based PDF files are supported for originality checks right now.')
+}
+
+function analyzeAgainstCapstones(text: string, capstones: CapstoneRow[]) {
+  const inputTokens = tokenize(text)
+  const inputUnique = new Set(inputTokens)
+  const inputShingles = createShingles(inputTokens, 4)
+  const inputSentences = splitSentences(text)
+
+  const matches = capstones
+    .map((capstone, index) => scoreCapstone(index, capstone, text, inputUnique, inputShingles, inputSentences))
+    .filter((item) => item.similarityPercentage >= 10)
+    .sort((a, b) => b.similarityPercentage - a.similarityPercentage)
+    .slice(0, 5)
+
+  const coveredTokens = new Set<string>()
+  matches.forEach((match) => match.coveredTokens.forEach((token) => coveredTokens.add(token)))
+
+  const aggregateRatio = inputUnique.size === 0 ? 0 : coveredTokens.size / inputUnique.size
+  const topSimilarity = matches[0]?.similarityPercentage ?? 0
+  const overallSimilarity = matches.length === 0
+    ? 0
+    : Math.min(95, Math.round((aggregateRatio * 55) + (topSimilarity * 0.45)))
+
+  return {
+    originalityScore: Math.max(5, 100 - overallSimilarity),
+    similaritySources: matches.map(({ coveredTokens, ...match }) => match),
+  }
+}
+
+function scoreCapstone(
+  index: number,
+  capstone: CapstoneRow,
+  inputText: string,
+  inputUnique: Set<string>,
+  inputShingles: Set<string>,
+  inputSentences: string[]
+) {
+  const sourceText = [capstone.title || '', capstone.abstract || ''].join('. ').trim()
+  const sourceTokens = tokenize(sourceText)
+  const sourceUnique = new Set(sourceTokens)
+  const sourceShingles = createShingles(sourceTokens, 4)
+  const sourceSentences = splitSentences(sourceText)
+
+  const overlappingTokens = intersectSets(inputUnique, sourceUnique)
+  const overlappingShingles = intersectSets(inputShingles, sourceShingles)
+  const tokenScore = inputUnique.size === 0 ? 0 : overlappingTokens.size / inputUnique.size
+  const shingleScore = inputShingles.size === 0 ? 0 : overlappingShingles.size / inputShingles.size
+  const sentenceMatch = findBestSentenceMatch(inputSentences, sourceSentences)
+  const titleScore = normalizedIncludes(inputText, capstone.title || '') ? 0.2 : 0
+
+  const similarityPercentage = Math.min(
+    95,
+    Math.round((tokenScore * 35) + (shingleScore * 45) + (sentenceMatch.score * 20) + (titleScore * 100))
+  )
+
+  return {
+    id: index + 1,
+    title: capstone.title || 'Untitled research',
+    author: capstone.author || 'Unknown author',
+    year: capstone.year ? String(capstone.year) : 'Unknown year',
+    similarityPercentage,
+    matchedText: sentenceMatch.inputSentence || buildFallbackPhrase(inputText, overlappingTokens),
+    sourceText: sentenceMatch.sourceSentence || buildFallbackPhrase(sourceText, overlappingTokens),
+    coveredTokens: overlappingTokens,
+  }
+}
+
+function findBestSentenceMatch(inputSentences: string[], sourceSentences: string[]) {
+  let best = { score: 0, inputSentence: '', sourceSentence: '' }
+
+  for (const inputSentence of inputSentences) {
+    const inputTokens = new Set(tokenize(inputSentence))
+    if (inputTokens.size < 4) {
+      continue
+    }
+
+    for (const sourceSentence of sourceSentences) {
+      const sourceTokens = new Set(tokenize(sourceSentence))
+      const overlap = intersectSets(inputTokens, sourceTokens)
+      const score = inputTokens.size === 0 ? 0 : overlap.size / inputTokens.size
+
+      if (score > best.score && overlap.size >= 4) {
+        best = {
+          score,
+          inputSentence: inputSentence.trim(),
+          sourceSentence: sourceSentence.trim(),
+        }
+      }
     }
   }
 
-  // Calculate basic text statistics
-  const words = text.split(/\s+/).filter(word => word.length > 0)
-  const wordCount = words.length
-  const sentenceCount = text.split(/[.!?]+/).filter(sentence => sentence.trim().length > 0).length
-
-  // Base originality score (inverse of plagiarism likelihood)
-  // In a real implementation, this would come from actual plagiarism detection
-  let originalityScore = 85 // Start with good score
-
-  // Adjust based on various factors (simplified mock logic)
-
-  // Very short texts are often flagged as potentially plagiarized
-  if (wordCount < 50) {
-    originalityScore = Math.max(60, originalityScore - 15)
-  }
-
-  // Very long texts might have more opportunities for matches
-  if (wordCount > 2000) {
-    originalityScore = Math.max(70, originalityScore - 10)
-  }
-
-  // Texts with repetitive content might score lower
-  const uniqueWords = new Set(words.map(w => w.toLowerCase())).size
-  const repetitionRatio = uniqueWords / Math.max(words.length, 1)
-  if (repetitionRatio < 0.5) { // Very repetitive
-    originalityScore = Math.max(50, originalityScore - 20)
-  } else if (repetitionRatio > 0.8) { // Good variety
-    originalityScore = Math.min(95, originalityScore + 5)
-  }
-
-  // Ensure score is in valid range
-  originalityScore = Math.max(0, Math.min(100, Math.round(originalityScore)))
-
-  // Generate similarity sources based on text analysis
-  // In reality, these would come from the plagiarism detection service
-  const similaritySources = generateMockSimilaritySources(text, originalityScore)
-
-  // Generate highlighted text showing potential matches
-  const highlightedText = generateHighlightedText(text, similaritySources)
-
-  return {
-    originalityScore,
-    similaritySources,
-    highlightedText
-  }
+  return best
 }
 
-/**
- * Generate mock similarity sources based on text analysis
- * In reality, these would come from actual plagiarism database matches
- */
-function generateMockSimilaritySources(text: string, originalityScore: number) {
-  const sources = []
+function buildFallbackPhrase(text: string, overlappingTokens: Set<string>) {
+  const sentences = splitSentences(text)
+  const tokenList = [...overlappingTokens]
 
-  // Number of sources inversely related to originality score
-  const sourceCount = Math.max(0, Math.floor((100 - originalityScore) / 15))
+  for (const sentence of sentences) {
+    const normalized = normalizeText(sentence)
+    if (tokenList.some((token) => normalized.includes(token))) {
+      return sentence.trim()
+    }
+  }
 
-  // Common academic topics that might be "matched" against
-  const commonTopics = [
-    { title: "Machine Learning in Education", author: "Dr. Sarah Chen", year: "2023" },
-    { title: "Artificial Intelligence Applications", author: "Prof. James Wilson", year: "2022" },
-    { title: "Data Science Methods", author: "Dr. Lisa Rodriguez", year: "2023" },
-    { title: "Cloud Computing Architecture", author: "Prof. David Kim", year: "2022" },
-    { title: "Cybersecurity Fundamentals", author: "Dr. Emily Davis", year: "2023" },
-    { title: "Software Engineering Practices", author: "Prof. Robert Taylor", year: "2022" },
-    { title: "Database Management Systems", author: "Dr. Maria Garcia", year: "2023" },
-    { title: "Web Development Technologies", author: "Prof. James Anderson", year: "2022" }
-  ]
+  return sentences[0]?.trim() || text.slice(0, 180).trim()
+}
 
-  // Extract key terms from text to make matches more relevant
-  const words = text.toLowerCase()
-    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, " ")
-    .split(/\s+/)
-    .filter(word => word.length > 3)
+function tokenize(text: string) {
+  return normalizeText(text)
+    .split(' ')
+    .filter((word) => word.length > 2 && !STOP_WORDS.has(word))
+}
 
-  const wordFreq = {}
-  words.forEach(word => {
-    (wordFreq as Record<string, number>)[word] = ((wordFreq as Record<string, number>)[word] || 0) + 1
+function normalizeText(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function splitSentences(text: string) {
+  return text
+    .replace(/\s+/g, ' ')
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean)
+}
+
+function createShingles(tokens: string[], size: number) {
+  const shingles = new Set<string>()
+  if (tokens.length < size) {
+    if (tokens.length > 0) {
+      shingles.add(tokens.join(' '))
+    }
+    return shingles
+  }
+
+  for (let index = 0; index <= tokens.length - size; index += 1) {
+    shingles.add(tokens.slice(index, index + size).join(' '))
+  }
+
+  return shingles
+}
+
+function intersectSets<T>(left: Set<T>, right: Set<T>) {
+  const result = new Set<T>()
+  left.forEach((value) => {
+    if (right.has(value)) {
+      result.add(value)
+    }
   })
-
-  // Sort words by frequency
-  const sortedWords = Object.entries(wordFreq)
-    .sort(([,a], [,b]) => (b as number) - (a as number))
-    .slice(0, 10)
-    .map(([word]) => word)
-
-  // Create similarity sources
-  for (let i = 0; i < Math.min(sourceCount, commonTopics.length); i++) {
-    const topic = commonTopics[i]
-    const similarity = Math.max(5, Math.min(30, 100 - originalityScore + Math.random() * 10))
-
-    // Find a relevant term from the text to "match"
-    const matchedTerm = sortedWords[Math.floor(Math.random() * sortedWords.length)] || "the"
-    const sourceTerm = matchedTerm === "the" && sortedWords.length > 1 ?
-                      sortedWords[1] : matchedTerm
-
-    sources.push({
-      id: i + 1,
-      title: topic.title,
-      author: topic.author,
-      year: topic.year,
-      similarityPercentage: Math.round(similarity),
-      matchedText: sourceTerm,
-      sourceText: `This concept of ${sourceTerm} is fundamental to understanding ${topic.title.toLowerCase()}...`
-    })
-  }
-
-  return sources
+  return result
 }
 
-/**
- * Generate highlighted text showing where matches were found
- * In reality, this would come from the plagiarism detection service
- */
-function generateHighlightedText(text: string, similaritySources: any[]) {
-  if (!text || similaritySources.length === 0) {
-    return text
-  }
+function normalizedIncludes(left: string, right: string) {
+  const normalizedRight = normalizeText(right)
+  return Boolean(normalizedRight) && normalizeText(left).includes(normalizedRight)
+}
 
-  let highlighted = text
-
-  // Sort by index descending to avoid messing up indices when replacing
-  const matches = similaritySources
-    .map(source => ({
-      term: source.matchedText.toLowerCase(),
-      similarity: source.similarityPercentage
-    }))
-    .filter(source => source.term.length > 2 && source.term !== "the") // Avoid highlighting super common words
-    .sort((a, b) => b.similarity - a.similarity) // Higher similarity first
-
-  // Apply highlighting for each match (simplified)
-  highlighted = text.replace(
-    new RegExp(`\\b(${matches.map(m => m.term).join('|')})\\b`, 'gi'),
-    '<span class="bg-primary-200">$1</span>'
+function extractPdfText(buffer: ArrayBuffer) {
+  const content = new TextDecoder('latin1').decode(buffer)
+  const literalMatches = [...content.matchAll(/\(([^()]*)\)\s*Tj/g)].map((match) => decodePdfString(match[1]))
+  const arrayMatches = [...content.matchAll(/\[(.*?)\]\s*TJ/g)].flatMap((match) =>
+    [...match[1].matchAll(/\(([^()]*)\)/g)].map((part) => decodePdfString(part[1]))
   )
 
-  return highlighted
+  return [...literalMatches, ...arrayMatches]
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function decodePdfString(value: string) {
+  return value
+    .replace(/\\\)/g, ')')
+    .replace(/\\\(/g, '(')
+    .replace(/\\\\/g, '\\')
 }

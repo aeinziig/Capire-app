@@ -5,7 +5,7 @@ const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
-if (!isSupabaseConfigured) {
+if (!isSupabaseConfigured && __DEV__) {
   console.warn('Supabase environment variables are missing. Data screens will show empty or error states.');
 }
 

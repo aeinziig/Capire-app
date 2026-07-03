@@ -31,13 +31,14 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "plugins": [
+      "expo-web-browser",
+      "expo-notifications"
+    ],
     "extra": {
       "eas": {
-        "projectId": "your-project-id"
+        "projectId": "b76fac20-f721-4518-a837-bc3c5a4e1744"
       }
-    },
-    "plugins": [
-      "expo-web-browser"
-    ]
+    }
   }
 }

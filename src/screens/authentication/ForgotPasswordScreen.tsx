@@ -6,6 +6,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootParamList } from '@/navigation/types';
 import { supabase } from '@/services/supabase';
 import { mapAuthError } from '@/utils/supabase/supabaseErrorHandler';
+import { validateSpcbaEmail } from '@/utils/authValidation';
 import {
   AuthLayout,
   WireframeButton,
@@ -25,8 +26,8 @@ const ForgotPasswordScreen: React.FC = () => {
   const [success, setSuccess] = useState(false);
 
   const handleResetPassword = async () => {
-    if (!email.trim()) return setError('Please enter your email');
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setError('Please enter a valid email address');
+    const emailError = validateSpcbaEmail(email);
+    if (emailError) return setError(emailError);
 
     setLoading(true);
     setError(null);
@@ -113,11 +114,14 @@ const ForgotPasswordScreen: React.FC = () => {
           label="Institutional Email"
           icon="mail"
           value={email}
-          onChangeText={setEmail}
+          onChangeText={(value) => {
+            setEmail(value);
+            if (error) setError(null);
+          }}
           autoCapitalize="none"
           keyboardType="email-address"
           autoCorrect={false}
-          placeholder="name@school.edu"
+          placeholder="12345678@spcba.edu.ph"
         />
       </WireframeCard>
 

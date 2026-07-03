@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootParamList, TabParamList } from '@/navigation/types';
 import { useApp } from '@/context/AppContext';
 import { supabase } from '@/services/supabase';
@@ -14,7 +16,10 @@ import {
   useWireframeTheme,
 } from '@/components/wireframe/Wireframe';
 
-type DashboardNavigationProp = BottomTabNavigationProp<TabParamList, 'Dashboard'>;
+type DashboardNavigationProp = CompositeNavigationProp<
+  BottomTabNavigationProp<TabParamList, 'Dashboard'>,
+  NativeStackNavigationProp<RootParamList>
+>;
 type FeatherIconName = keyof typeof Feather.glyphMap;
 type FeaturedResearchItem = {
   id: string;
@@ -33,7 +38,7 @@ const quickActions = [
 const DashboardScreen: React.FC = () => {
   const navigation = useNavigation<DashboardNavigationProp>();
   const wireframeColors = useWireframeTheme();
-  const { userName, stats, recentActivities, error } = useApp();
+  const { userName, recentActivities, error, unreadMessageCount } = useApp();
   const [featuredResearch, setFeaturedResearch] = useState<FeaturedResearchItem[]>([]);
 
   useEffect(() => {
@@ -69,52 +74,32 @@ const DashboardScreen: React.FC = () => {
     <AppLayout
       title={`Hi, ${userName || 'Student'}`}
       subtitle="Continue your capstone journey with recommendations, saved work, and AI support."
-      headerRight={<HeaderIconButton icon="bell" />}
+      headerRight={(
+        <View>
+          <HeaderIconButton icon="bell" onPress={() => navigation.navigate('Notifications')} />
+          {unreadMessageCount > 0 ? (
+            <View
+              style={{
+                position: 'absolute',
+                top: -4,
+                right: -4,
+                minWidth: 20,
+                height: 20,
+                borderRadius: 10,
+                backgroundColor: '#D64545',
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingHorizontal: 5,
+              }}
+            >
+              <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '800' }}>
+                {unreadMessageCount > 99 ? '99+' : unreadMessageCount}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      )}
     >
-      <WireframeCard style={{ marginBottom: 16 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <View>
-            <Text style={{ color: wireframeColors.text, fontSize: 20, fontWeight: '800' }}>Dashboard</Text>
-            <Text style={{ color: wireframeColors.muted, fontSize: 13, marginTop: 4 }}>
-              Browse what matters most today.
-            </Text>
-          </View>
-          <TouchableOpacity
-            onPress={() => navigation.navigate('Search')}
-            activeOpacity={0.85}
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: 16,
-              backgroundColor: wireframeColors.accentSoft,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Feather name="search" size={20} color={wireframeColors.accent} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-          <View style={{ width: '48%', borderRadius: 18, backgroundColor: wireframeColors.accentSoft, padding: 14 }}>
-            <Text style={{ color: wireframeColors.muted, fontSize: 12 }}>Capstones</Text>
-            <Text style={{ color: wireframeColors.text, fontSize: 24, fontWeight: '800', marginTop: 6 }}>{stats.totalCapstones}</Text>
-          </View>
-          <View style={{ width: '48%', borderRadius: 18, backgroundColor: wireframeColors.inputBg, padding: 14 }}>
-            <Text style={{ color: wireframeColors.muted, fontSize: 12 }}>Bookmarks</Text>
-            <Text style={{ color: wireframeColors.text, fontSize: 24, fontWeight: '800', marginTop: 6 }}>{stats.myBookmarks}</Text>
-          </View>
-          <View style={{ width: '48%', borderRadius: 18, backgroundColor: wireframeColors.surface, padding: 14 }}>
-            <Text style={{ color: wireframeColors.muted, fontSize: 12 }}>For Review</Text>
-            <Text style={{ color: wireframeColors.text, fontSize: 24, fontWeight: '800', marginTop: 6 }}>{stats.availableForReview}</Text>
-          </View>
-          <View style={{ width: '48%', borderRadius: 18, backgroundColor: wireframeColors.dangerSoft, padding: 14 }}>
-            <Text style={{ color: wireframeColors.muted, fontSize: 12 }}>Checks</Text>
-            <Text style={{ color: wireframeColors.text, fontSize: 24, fontWeight: '800', marginTop: 6 }}>{stats.originalityChecks}</Text>
-          </View>
-        </View>
-      </WireframeCard>
-
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
         {quickActions.map((action) => (
           <TouchableOpacity
@@ -151,7 +136,9 @@ const DashboardScreen: React.FC = () => {
       <WireframeCard style={{ marginBottom: 16 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <Text style={{ color: wireframeColors.text, fontSize: 18, fontWeight: '800' }}>Recommended topics</Text>
-          <Text style={{ color: wireframeColors.accent, fontSize: 13, fontWeight: '700' }}>See all</Text>
+          <TouchableOpacity onPress={() => navigation.navigate('Search')} activeOpacity={0.85}>
+            <Text style={{ color: wireframeColors.accent, fontSize: 13, fontWeight: '700' }}>See all</Text>
+          </TouchableOpacity>
         </View>
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
           {['AI', 'Mobile', 'Healthcare'].map((tag, index) => (

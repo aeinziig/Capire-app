@@ -1,10 +1,9 @@
-// @ts-ignore
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-
 interface RateLimitInfo {
   count: number;
   resetTime: number;
 }
+
+const edgeDebug = Deno.env.get('EDGE_DEBUG') === 'true';
 
 /**
  * Rate limiter implementation with the following limitations:
@@ -134,7 +133,9 @@ export function rateLimitMiddleware(
       return null;
     } catch (error) {
       // If rate limiter fails, allow request to proceed (fail open)
-      console.error('Rate limiter error:', error);
+      if (edgeDebug) {
+        console.error('Rate limiter error:', error);
+      }
       return null;
     }
   };

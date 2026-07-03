@@ -27,6 +27,7 @@ const OwnProfileScreen: React.FC = () => {
 
   const userName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email?.split('@')[0] || 'User';
   const displayProfile = user?.user_metadata?.display_profile || 'Student Researcher';
+  const doNotDisturb = Boolean(user?.user_metadata?.do_not_disturb);
   const userEmail = user?.email || '';
   const userStudentId = user?.user_metadata?.student_id || user?.user_metadata?.id_number || 'No ID';
 
@@ -120,6 +121,24 @@ const OwnProfileScreen: React.FC = () => {
         <Text style={{ color: wireframeColors.muted, fontSize: 13, marginTop: 6 }}>
           {displayProfileInput.trim() || displayProfile}
         </Text>
+        <View
+          style={{
+            marginTop: 12,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: doNotDisturb ? wireframeColors.accent : wireframeColors.line,
+            backgroundColor: wireframeColors.inputBg,
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+            flexDirection: 'row',
+            alignItems: 'center',
+          }}
+        >
+          <Feather name={doNotDisturb ? 'moon' : 'message-circle'} size={14} color={doNotDisturb ? wireframeColors.accent : wireframeColors.muted} />
+          <Text style={{ color: doNotDisturb ? wireframeColors.accent : wireframeColors.muted, fontSize: 12, fontWeight: '700', marginLeft: 8 }}>
+            {doNotDisturb ? 'Do Not Disturb enabled' : 'Available for messages'}
+          </Text>
+        </View>
       </WireframeCard>
 
       <WireframeCard style={{ marginBottom: 16 }}>

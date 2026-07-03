@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Share,
   View,
   Text,
   TouchableOpacity,
@@ -86,8 +87,10 @@ const CitationBottomSheet: React.FC<{ sourceData: SourceData; onClose: () => voi
   };
 
   const handleShare = () => {
-    // In a real app, we would use Share API
-    alert('Share functionality coming soon');
+    void Share.share({
+      message: citation,
+      title: 'APA Citation',
+    });
   };
 
   React.useEffect(() => {

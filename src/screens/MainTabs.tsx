@@ -25,7 +25,7 @@ const Tab = createBottomTabNavigator<TabParamList>();
 const MainTabs: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootParamList>>();
   const { user } = useAuth();
-  const { resolvedTheme } = useApp();
+  const { resolvedTheme, unreadMessageCount } = useApp();
   const insets = useSafeAreaInsets();
   const role = (user?.user_metadata?.role || user?.app_metadata?.role || 'student') as string;
   const tabBarHeight = 72 + insets.bottom;
@@ -43,13 +43,13 @@ const MainTabs: React.FC = () => {
         inactive: '#A8BDB2',
       }
     : {
-        page: '#F4F8F4',
+        page: '#F8F9FA',
         tab: '#FFFFFF',
-        line: '#DCE7DE',
+        line: '#E9ECEF',
         accent: '#2D6A4F',
         accentText: '#FFFFFF',
         active: '#2D6A4F',
-        inactive: '#7B8D84',
+        inactive: '#6C757D',
       };
 
   return (
@@ -67,16 +67,17 @@ const MainTabs: React.FC = () => {
             left: 16,
             right: 16,
             bottom: tabBarBottomOffset,
-            height: tabBarHeight,
-            borderRadius: 24,
+            height: 64 + insets.bottom,
+            borderRadius: 0,
             backgroundColor: colors.tab,
-            borderTopWidth: 0,
+            borderTopWidth: 1,
+            borderTopColor: colors.line,
             paddingTop: 8,
             paddingBottom: 8 + insets.bottom,
-            shadowColor: '#163126',
-            shadowOffset: { width: 0, height: 10 },
-            shadowOpacity: 0.12,
-            shadowRadius: 18,
+            shadowColor: '#000000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.06,
+            shadowRadius: 8,
           },
           tabBarLabelStyle: {
             fontSize: 11,
@@ -163,6 +164,13 @@ const MainTabs: React.FC = () => {
           component={MessagesScreen}
           options={{
             tabBarLabel: 'Messages',
+            tabBarBadge: unreadMessageCount > 0 ? unreadMessageCount : undefined,
+            tabBarBadgeStyle: {
+              backgroundColor: '#D64545',
+              color: '#FFFFFF',
+              fontSize: 10,
+              fontWeight: '700',
+            },
             tabBarIcon: ({ color, size }) => <Feather name="message-circle" size={size} color={color} />,
           }}
         />
@@ -182,22 +190,20 @@ const MainTabs: React.FC = () => {
           position: 'absolute',
           right: 24,
           bottom: floatingButtonOffset,
-          width: 62,
-          height: 62,
-          borderRadius: 31,
-          backgroundColor: colors.accent,
+          width: 52,
+          height: 52,
+          borderRadius: 26,
+          backgroundColor: '#E9C46A',
           alignItems: 'center',
           justifyContent: 'center',
-          borderWidth: 1,
-          borderColor: colors.line,
-          shadowColor: '#163126',
-          shadowOffset: { width: 0, height: 10 },
-          shadowOpacity: 0.18,
-          shadowRadius: 18,
+          shadowColor: '#E9C46A',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.4,
+          shadowRadius: 16,
           elevation: 6,
         }}
       >
-        <MaterialCommunityIcons name="robot-outline" size={28} color={colors.accentText} />
+        <MaterialCommunityIcons name="robot-outline" size={26} color="#1B4332" />
       </TouchableOpacity>
     </View>
   );
