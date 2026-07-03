@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Keyboard, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -47,6 +47,15 @@ const ChatConversationScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [partnerDoNotDisturb, setPartnerDoNotDisturb] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [composerHeight, setComposerHeight] = useState(0);
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const isTypingRef = useRef(false);
+  const shouldStickToBottomRef = useRef(true);
+
+  const scrollToBottom = useCallback((animated = true) => {
+    scrollViewRef.current?.scrollToEnd({ animated });
+  }, []);
 
   const toMessage = useCallback((message: ChatMessageRow): Message => ({
     id: message.id,
@@ -111,6 +120,21 @@ const ChatConversationScreen: React.FC = () => {
   }, [partnerId]);
 
   useEffect(() => {
+    const showSubscription = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+      scrollToBottom(false);
+    });
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [scrollToBottom]);
+
+  useEffect(() => {
     void fetchMessages();
     void fetchPartnerStatus();
 
@@ -129,6 +153,8 @@ const ChatConversationScreen: React.FC = () => {
         if (!isConversationMessage) {
           return;
         }
+
+        const shouldAutoScroll = shouldStickToBottomRef.current && !isTypingRef.current;
 
         setMessages((current) => {
           const existingIndex = current.findIndex((item) => item.id === message.id);
@@ -160,6 +186,10 @@ const ChatConversationScreen: React.FC = () => {
           void supabase.from('chat_messages').update({ is_read: true }).eq('id', message.id);
           void refreshMessageNotifications();
         }
+
+        if (shouldAutoScroll) {
+          requestAnimationFrame(() => scrollToBottom());
+        }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chat_messages' }, (payload) => {
         const message = payload.new as ChatMessageRow;
@@ -171,9 +201,15 @@ const ChatConversationScreen: React.FC = () => {
           return;
         }
 
+        const shouldAutoScroll = shouldStickToBottomRef.current && !isTypingRef.current;
+
         setMessages((current) => current.map((item) => (
           item.id === message.id ? { ...item, ...toMessage(message) } : item
         )));
+
+        if (shouldAutoScroll) {
+          requestAnimationFrame(() => scrollToBottom());
+        }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'users', filter: `id=eq.${partnerId}` }, (payload) => {
         const profile = payload.new as UserStatusRow;
@@ -207,6 +243,7 @@ const ChatConversationScreen: React.FC = () => {
     const optimisticId = `local-${Date.now()}`;
     setInput('');
     setError(null);
+    shouldStickToBottomRef.current = true;
     setMessages((current) => [
       ...current,
       {
@@ -217,6 +254,7 @@ const ChatConversationScreen: React.FC = () => {
         status: 'sending',
       },
     ]);
+    requestAnimationFrame(() => scrollToBottom());
 
     const { error: insertError } = await supabase.from('chat_messages').insert({
       sender_id: user.id,
@@ -235,7 +273,7 @@ const ChatConversationScreen: React.FC = () => {
     setMessages((current) => current.map((item) => (
       item.id === optimisticId ? { ...item, status: 'sent' } : item
     )));
-  }, [input, partnerId, partnerName, user]);
+  }, [input, partnerId, partnerName, scrollToBottom, user]);
 
   return (
     <AppLayout
@@ -246,8 +284,20 @@ const ChatConversationScreen: React.FC = () => {
     >
       <View style={{ flex: 1 }}>
         <ScrollView
+          ref={scrollViewRef}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 12 }}
+          contentContainerStyle={{ paddingBottom: composerHeight + keyboardHeight + 24 }}
+          onContentSizeChange={() => {
+            if (shouldStickToBottomRef.current && !isTypingRef.current) {
+              scrollToBottom(false);
+            }
+          }}
+          onScroll={(event) => {
+            const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+            const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+            shouldStickToBottomRef.current = distanceFromBottom < 120;
+          }}
+          scrollEventThrottle={16}
         >
           <TouchableOpacity
             activeOpacity={0.88}
@@ -379,7 +429,16 @@ const ChatConversationScreen: React.FC = () => {
           )}
         </ScrollView>
 
-        <WireframeCard style={{ marginTop: 'auto' }}>
+        <View
+          onLayout={(event) => setComposerHeight(event.nativeEvent.layout.height)}
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: keyboardHeight,
+          }}
+        >
+          <WireframeCard>
           <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', marginBottom: 10 }}>Reply</Text>
           <View
             style={{
@@ -397,10 +456,19 @@ const ChatConversationScreen: React.FC = () => {
               placeholder="Type a message..."
               placeholderTextColor="#95A79D"
               value={input}
-              onChangeText={setInput}
+              onChangeText={(value) => {
+                isTypingRef.current = value.trim().length > 0;
+                setInput(value);
+              }}
               onSubmitEditing={() => void sendMessage()}
               editable={!partnerDoNotDisturb}
               multiline
+              onFocus={() => {
+                isTypingRef.current = true;
+              }}
+              onBlur={() => {
+                isTypingRef.current = input.trim().length > 0;
+              }}
               style={{ flex: 1, color: inputTextColor, fontSize: 14, maxHeight: 96, paddingVertical: 12 }}
             />
             <TouchableOpacity
@@ -420,7 +488,8 @@ const ChatConversationScreen: React.FC = () => {
               <Feather name="send" size={18} color={!input.trim() || partnerDoNotDisturb ? colors.muted : '#FFFFFF'} />
             </TouchableOpacity>
           </View>
-        </WireframeCard>
+          </WireframeCard>
+        </View>
       </View>
     </AppLayout>
   );

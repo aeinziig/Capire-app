@@ -8,6 +8,7 @@ import type { RootParamList } from '@/navigation/types';
 import { mapAuthError } from '@/utils/supabase/supabaseErrorHandler';
 import {
   AppLayout,
+  HeaderIconButton,
   WireframeCard,
   WireframePill,
   useWireframeTheme,
@@ -25,6 +26,7 @@ type CapstoneItem = {
 
 const departments = ['All', 'Computer Science', 'Urban Planning', 'Political Science', 'Engineering', 'Business'];
 const years = ['All', '2025', '2024', '2023', '2022'];
+const loadingCards = [1, 2, 3];
 
 const SearchScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootParamList>>();
@@ -36,6 +38,7 @@ const SearchScreen: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hasActiveFilters = Boolean(searchQuery.trim()) || filters.department !== 'All' || filters.year !== 'All';
 
   useEffect(() => {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
@@ -100,6 +103,7 @@ const SearchScreen: React.FC = () => {
     <AppLayout
       title="Search archive"
       subtitle="Explore capstone studies, filter by department, and jump into promising ideas."
+      headerRight={<HeaderIconButton icon="refresh-cw" onPress={() => void fetchCapstones()} />}
     >
       <WireframeCard style={{ marginBottom: 16 }}>
         <View
@@ -179,71 +183,120 @@ const SearchScreen: React.FC = () => {
       <WireframeCard>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
           <Text style={{ color: wireframeColors.text, fontSize: 18, fontWeight: '800' }}>
-            Results ({capstones.length})
+            Results {loading ? '' : `(${capstones.length})`}
           </Text>
           {loading ? <ActivityIndicator color={wireframeColors.accent} /> : null}
         </View>
 
         {loading ? (
-          <View style={{ alignItems: 'center', justifyContent: 'center', paddingVertical: 24 }}>
-            <ActivityIndicator color={wireframeColors.accent} />
-            <Text style={{ color: wireframeColors.muted, fontSize: 13, marginTop: 12 }}>
+          <View style={{ minHeight: 320 }}>
+            {loadingCards.map((card) => (
+              <View
+                key={card}
+                style={{
+                  borderRadius: 18,
+                  borderWidth: 1,
+                  borderColor: wireframeColors.line,
+                  backgroundColor: wireframeColors.inputBg,
+                  padding: 14,
+                  marginBottom: 10,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flex: 1, paddingRight: 12 }}>
+                    <View style={{ height: 16, borderRadius: 999, backgroundColor: wireframeColors.line, marginBottom: 8, width: '82%' }} />
+                    <View style={{ height: 12, borderRadius: 999, backgroundColor: wireframeColors.line, width: '54%' }} />
+                  </View>
+                  <View style={{ width: 56, height: 28, borderRadius: 999, backgroundColor: wireframeColors.line }} />
+                </View>
+                <View style={{ height: 12, borderRadius: 999, backgroundColor: wireframeColors.line, marginTop: 14, width: '100%' }} />
+                <View style={{ height: 12, borderRadius: 999, backgroundColor: wireframeColors.line, marginTop: 8, width: '88%' }} />
+              </View>
+            ))}
+            <Text style={{ color: wireframeColors.muted, fontSize: 13, textAlign: 'center', marginTop: 6 }}>
               Loading capstones...
             </Text>
           </View>
         ) : capstones.length === 0 ? (
-          <Text style={{ color: wireframeColors.muted, fontSize: 13 }}>
-            No capstones matched this combination yet. Try broadening the search.
-          </Text>
-        ) : (
-          capstones.map((capstone) => {
-              const originalityLabel = capstone.originalityScore == null ? 'N/A' : `${capstone.originalityScore}%`;
-              const originalityBackground =
-                capstone.originalityScore == null
-                  ? '#EEF2EF'
-                  : capstone.originalityScore >= 90
-                    ? '#EAF6ED'
-                    : '#FFF4D8';
-
-              return (
-            <TouchableOpacity
-              key={capstone.id}
-              onPress={() => navigation.navigate('CapstoneDetail', { capstoneId: capstone.id })}
-              activeOpacity={0.85}
+          <View
+            style={{
+              minHeight: 220,
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingHorizontal: 18,
+            }}
+          >
+            <View
               style={{
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: wireframeColors.line,
-                backgroundColor: wireframeColors.inputBg,
-                padding: 14,
-                marginBottom: 10,
+                width: 56,
+                height: 56,
+                borderRadius: 28,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: wireframeColors.accentSoft,
+                marginBottom: 14,
               }}
             >
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text style={{ color: wireframeColors.text, fontSize: 15, fontWeight: '800', flex: 1, paddingRight: 12 }}>
-                  {capstone.title}
-                </Text>
-                <View
-                  style={{
-                    borderRadius: 999,
-                    paddingHorizontal: 10,
-                    paddingVertical: 6,
-                    backgroundColor: originalityBackground,
-                  }}
-                >
-                  <Text style={{ color: wireframeColors.text, fontSize: 11, fontWeight: '700' }}>
-                    {originalityLabel}
+              <Feather name="search" size={22} color={wireframeColors.accent} />
+            </View>
+            <Text style={{ color: wireframeColors.text, fontSize: 16, fontWeight: '800', textAlign: 'center', marginBottom: 8 }}>
+              No capstones found
+            </Text>
+            <Text style={{ color: wireframeColors.muted, fontSize: 13, lineHeight: 20, textAlign: 'center' }}>
+              {hasActiveFilters
+                ? 'Try a broader keyword or clear one of the filters.'
+                : 'Capstones will appear here once archive data is available.'}
+            </Text>
+          </View>
+        ) : (
+          capstones.map((capstone) => {
+            const originalityLabel = capstone.originalityScore == null ? 'N/A' : `${capstone.originalityScore}%`;
+            const originalityBackground =
+              capstone.originalityScore == null
+                ? '#EEF2EF'
+                : capstone.originalityScore >= 90
+                  ? '#EAF6ED'
+                  : '#FFF4D8';
+
+            return (
+              <TouchableOpacity
+                key={capstone.id}
+                onPress={() => navigation.navigate('CapstoneDetail', { capstoneId: capstone.id })}
+                activeOpacity={0.85}
+                style={{
+                  borderRadius: 18,
+                  borderWidth: 1,
+                  borderColor: wireframeColors.line,
+                  backgroundColor: wireframeColors.inputBg,
+                  padding: 14,
+                  marginBottom: 10,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ color: wireframeColors.text, fontSize: 15, fontWeight: '800', flex: 1, paddingRight: 12 }}>
+                    {capstone.title}
                   </Text>
+                  <View
+                    style={{
+                      borderRadius: 999,
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      backgroundColor: originalityBackground,
+                    }}
+                  >
+                    <Text style={{ color: wireframeColors.text, fontSize: 11, fontWeight: '700' }}>
+                      {originalityLabel}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-              <Text style={{ color: wireframeColors.muted, fontSize: 12, marginTop: 6 }}>
-                {capstone.author} • {capstone.department} • {capstone.year}
-              </Text>
-              <Text numberOfLines={2} style={{ color: wireframeColors.text, fontSize: 13, lineHeight: 19, marginTop: 10 }}>
-                {capstone.abstract || 'Abstract unavailable.'}
-              </Text>
-            </TouchableOpacity>
-              );
+                <Text style={{ color: wireframeColors.muted, fontSize: 12, marginTop: 6 }}>
+                  {[capstone.author, capstone.department, capstone.year].filter(Boolean).join(' / ')}
+                </Text>
+                <Text numberOfLines={2} style={{ color: wireframeColors.text, fontSize: 13, lineHeight: 19, marginTop: 10 }}>
+                  {capstone.abstract || 'Abstract unavailable.'}
+                </Text>
+              </TouchableOpacity>
+            );
           })
         )}
       </WireframeCard>

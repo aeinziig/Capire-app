@@ -21,7 +21,6 @@ const RegisterScreen: React.FC = () => {
   const wireframeColors = useWireframeTheme();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [idNumber, setIdNumber] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -32,7 +31,6 @@ const RegisterScreen: React.FC = () => {
     if (!name.trim()) return setError('Please enter your full name');
     const emailError = validateSpcbaEmail(email);
     if (emailError) return setError(emailError);
-    if (!idNumber.trim()) return setError('Please enter your ID number');
     if (password.length < 8) return setError('Password must be at least 8 characters');
     if (password !== confirmPassword) return setError('Passwords do not match');
     if (!termsAccepted) return setError('Please accept the terms before continuing');
@@ -41,14 +39,18 @@ const RegisterScreen: React.FC = () => {
     setError(null);
 
     try {
+      const studentId = email.trim().split('@')[0];
+
       const { error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
+            full_name: name,
             name,
             role: 'student',
-            id_number: idNumber,
+            student_id: studentId,
+            id_number: studentId,
           },
         },
       });
@@ -119,7 +121,6 @@ const RegisterScreen: React.FC = () => {
             autoComplete="email"
             importantForAutofill="yes"
           />
-          <WireframeInput label="ID Number" icon="credit-card" value={idNumber} onChangeText={setIdNumber} placeholder="2024-0001" />
         </WireframeCard>
 
         <WireframeCard>
