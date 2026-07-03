@@ -1,11 +1,18 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/services/supabase';
+import { mapDatabaseError } from '@/utils/supabase/supabaseErrorHandler';
 
-export const usePagination = <T>(
+type PaginationFilter = {
+  column: string;
+  value: unknown;
+  operator?: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'ilike';
+};
+
+export const usePagination = <T extends Record<string, unknown>>(
   table: string,
   options: {
     select?: string;
-    filters?: Array<{ column: string; value: any; operator?: string }>;
+    filters?: PaginationFilter[];
     orderBy?: { column: string; ascending?: boolean };
   } = {}
 ) => {
@@ -20,7 +27,7 @@ export const usePagination = <T>(
     setLoading(true);
     setError(null);
     try {
-      let query = supabase
+      let query: any = supabase
         .from(table)
         .select(options.select || '*')
         .range(pageNum * PAGE_SIZE, (pageNum + 1) * PAGE_SIZE - 1);
@@ -41,14 +48,15 @@ export const usePagination = <T>(
         );
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
+      const { data: pageData, error: err } = await query;
+      if (err) throw err;
 
-      setData(prev => [...prev, ...(data || [])]);
-      setHasMore((data || []).length === PAGE_SIZE);
-      return { data, error: null };
-    } catch (err: any) {
-      setError(err.message || 'An error occurred');
+      const typedPageData = (pageData as unknown as T[]) || [];
+      setData((prev: T[]) => [...prev, ...typedPageData] );
+      setHasMore(typedPageData.length === PAGE_SIZE);
+      return { data: pageData, error: null };
+    } catch (err: unknown) {
+      setError(mapDatabaseError(err));
       return { data: null, error: err };
     } finally {
       setLoading(false);
