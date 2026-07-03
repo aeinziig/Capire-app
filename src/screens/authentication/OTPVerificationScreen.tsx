@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootParamList } from '@/navigation/types';
+import { supabase } from '@/services/supabase';
+import { mapAuthError } from '@/utils/supabase/supabaseErrorHandler';
 import {
   AuthLayout,
   WireframeButton,
@@ -16,7 +18,9 @@ type OTPVerificationScreenNavigationProp = NativeStackNavigationProp<RootParamLi
 
 const OTPVerificationScreen: React.FC = () => {
   const navigation = useNavigation<OTPVerificationScreenNavigationProp>();
+  const route = useRoute();
   const wireframeColors = useWireframeTheme();
+  const { email } = route.params as RootParamList['OTPVerification'];
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +35,7 @@ const OTPVerificationScreen: React.FC = () => {
 
   const otpSlots = useMemo(() => Array.from({ length: 6 }, (_, index) => otp[index] || ''), [otp]);
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
     if (!/^\d{6}$/.test(otp)) {
       setError('Please enter a valid 6-digit verification code');
       return;
@@ -39,11 +43,46 @@ const OTPVerificationScreen: React.FC = () => {
 
     setLoading(true);
     setError(null);
+    setSuccess(null);
 
-    setTimeout(() => {
+    try {
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        email,
+        token: otp,
+        type: 'signup',
+      });
+
+      if (verifyError) throw verifyError;
+
       setLoading(false);
       setSuccess('Verification complete. You can now sign in.');
-    }, 1200);
+      setTimeout(() => navigation.navigate('Login'), 600);
+    } catch (err: unknown) {
+      setLoading(false);
+      setError(mapAuthError(err));
+    }
+  };
+
+  const handleResendCode = async () => {
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const { error: resendError } = await supabase.auth.resend({
+        type: 'signup',
+        email,
+      });
+
+      if (resendError) throw resendError;
+
+      setResendTimer(60);
+      setSuccess('A new verification code has been sent.');
+    } catch (err: unknown) {
+      setError(mapAuthError(err));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -75,7 +114,7 @@ const OTPVerificationScreen: React.FC = () => {
         </View>
 
         <Text style={{ color: wireframeColors.muted, fontSize: 14, lineHeight: 21, marginBottom: 16 }}>
-          We sent a one-time password to your inbox. Please enter it below to continue.
+          We sent a one-time password to {email}. Please enter it below to continue.
         </Text>
 
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 }}>
@@ -117,7 +156,7 @@ const OTPVerificationScreen: React.FC = () => {
           <Text style={{ color: wireframeColors.muted, fontSize: 12 }}>
             {resendTimer > 0 ? `Resend in 00:${String(resendTimer).padStart(2, '0')}` : 'Didn’t get the code?'}
           </Text>
-          <TouchableOpacity onPress={() => setResendTimer(60)} disabled={resendTimer > 0} activeOpacity={0.85}>
+          <TouchableOpacity onPress={() => void handleResendCode()} disabled={resendTimer > 0 || loading} activeOpacity={0.85}>
             <Text style={{ color: resendTimer > 0 ? '#96AAA0' : wireframeColors.accent, fontSize: 12, fontWeight: '700' }}>
               Resend Code
             </Text>
@@ -142,7 +181,7 @@ const OTPVerificationScreen: React.FC = () => {
 
       <WireframeButton
         label={loading ? 'Verifying...' : 'Verify and Continue'}
-        onPress={handleVerify}
+        onPress={() => void handleVerify()}
         disabled={loading || otp.length !== 6}
         icon="check"
       />
