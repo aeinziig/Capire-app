@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Text, TouchableOpacity, View } from 'react-native';
 import Checkbox from 'expo-checkbox';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootParamList } from '@/navigation/types';
 import { supabase } from '@/services/supabase';
 import { mapAuthError } from '@/utils/supabase/supabaseErrorHandler';
+import { validateSpcbaEmail } from '@/utils/authValidation';
 import {
   AuthLayout,
   WireframeButton,
@@ -29,8 +30,8 @@ const RegisterScreen: React.FC = () => {
 
   const handleRegister = async () => {
     if (!name.trim()) return setError('Please enter your full name');
-    if (!email.trim()) return setError('Please enter your email');
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setError('Please enter a valid email address');
+    const emailError = validateSpcbaEmail(email);
+    if (emailError) return setError(emailError);
     if (!idNumber.trim()) return setError('Please enter your ID number');
     if (password.length < 8) return setError('Password must be at least 8 characters');
     if (password !== confirmPassword) return setError('Passwords do not match');
@@ -74,7 +75,7 @@ const RegisterScreen: React.FC = () => {
         </TouchableOpacity>
       }
     >
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <View>
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
           {[0, 1, 2].map((index) => (
             <View
@@ -106,8 +107,11 @@ const RegisterScreen: React.FC = () => {
             label="Institutional Email"
             icon="mail"
             value={email}
-            onChangeText={setEmail}
-            placeholder="name@school.edu"
+            onChangeText={(value) => {
+              setEmail(value);
+              if (error) setError(null);
+            }}
+            placeholder="12345678@spcba.edu.ph"
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="email-address"
@@ -150,9 +154,19 @@ const RegisterScreen: React.FC = () => {
 
         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 18, marginBottom: 18 }}>
           <Checkbox value={termsAccepted} onValueChange={setTermsAccepted} color={termsAccepted ? wireframeColors.accent : undefined} />
-          <Text style={{ color: wireframeColors.muted, fontSize: 13, flex: 1, marginLeft: 12, lineHeight: 19 }}>
-            I agree to the Terms of Use and Privacy Policy.
-          </Text>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={{ color: wireframeColors.muted, fontSize: 13, lineHeight: 19 }}>
+              I agree to the{' '}
+              <Text style={{ color: wireframeColors.accent, fontWeight: '700' }} onPress={() => navigation.navigate('LegalDocument', { document: 'terms' })}>
+                Terms of Use
+              </Text>{' '}
+              and{' '}
+              <Text style={{ color: wireframeColors.accent, fontWeight: '700' }} onPress={() => navigation.navigate('LegalDocument', { document: 'privacy' })}>
+                Privacy Policy
+              </Text>
+              .
+            </Text>
+          </View>
         </View>
 
         {error ? (
@@ -176,7 +190,7 @@ const RegisterScreen: React.FC = () => {
           disabled={loading}
           icon="arrow-right"
         />
-      </ScrollView>
+      </View>
     </AuthLayout>
   );
 };

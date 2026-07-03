@@ -2,8 +2,8 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 // @ts-ignore
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { sanitizeHtml, isValidBase64, validateName } from './middleware/sanitizeInput.ts'
-import { rateLimitMiddleware } from './middleware/rateLimiter.ts'
+import { sanitizeHtml, isValidBase64, validateName } from '../middleware/sanitizeInput.ts'
+import { rateLimitMiddleware } from '../middleware/rateLimiter.ts'
 
 // @ts-ignore
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!

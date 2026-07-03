@@ -6,9 +6,12 @@ export type RootStackParamList = {
   Register: undefined;
   ForgotPassword: undefined;
   OTPVerification: undefined;
+  LegalDocument: { document: 'terms' | 'privacy' };
   MainTabs: NavigatorScreenParams<TabParamList> | undefined;
   CapstoneDetail: { capstoneId: string };
   ChatConversation: { partnerId: string; partnerName: string };
+  OtherUserProfile: { userId: string };
+  Notifications: undefined;
   SubmitTopic: undefined;
   Settings: undefined;
 };

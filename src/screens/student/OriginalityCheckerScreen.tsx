@@ -1,10 +1,10 @@
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import CitationBottomSheet from '../shared/CitationBottomSheet';
 import {
   AppLayout,
-  HeaderIconButton,
   WireframeCard,
   useWireframeTheme,
 } from '@/components/wireframe/Wireframe';
@@ -32,17 +32,132 @@ type OriginalityCheckerState =
   | { type: 'RESULTS'; data: ResultsType }
   | { type: 'ERROR'; message: string };
 
+type HighlightSegment = {
+  text: string;
+  highlighted: boolean;
+};
+
+const buildHighlightedSegments = (text: string, phrases: string[]): HighlightSegment[] => {
+  const terms = [...new Set(phrases.map((phrase) => phrase.trim()).filter((phrase) => phrase.length >= 8))]
+    .sort((left, right) => right.length - left.length);
+
+  if (terms.length === 0 || !text.trim()) {
+    return [{ text, highlighted: false }];
+  }
+
+  const lowerText = text.toLowerCase();
+  const segments: HighlightSegment[] = [];
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    let nextIndex = -1;
+    let nextTerm = '';
+
+    for (const term of terms) {
+      const index = lowerText.indexOf(term.toLowerCase(), cursor);
+      if (index === -1) {
+        continue;
+      }
+      if (nextIndex === -1 || index < nextIndex || (index === nextIndex && term.length > nextTerm.length)) {
+        nextIndex = index;
+        nextTerm = term;
+      }
+    }
+
+    if (nextIndex === -1) {
+      segments.push({ text: text.slice(cursor), highlighted: false });
+      break;
+    }
+
+    if (nextIndex > cursor) {
+      segments.push({ text: text.slice(cursor, nextIndex), highlighted: false });
+    }
+
+    segments.push({
+      text: text.slice(nextIndex, nextIndex + nextTerm.length),
+      highlighted: true,
+    });
+    cursor = nextIndex + nextTerm.length;
+  }
+
+  return segments.filter((segment) => segment.text.length > 0);
+};
+
 const OriginalityCheckerScreen: React.FC = () => {
   const colors = useWireframeTheme();
   const [inputText, setInputText] = useState('');
   const [fileName, setFileName] = useState<string | null>(null);
+  const [filePath, setFilePath] = useState<string | null>(null);
   const [state, setState] = useState<OriginalityCheckerState>({ type: 'IDLE' });
   const [selectedSource, setSelectedSource] = useState<SimilaritySource | null>(null);
   const [showCitationModal, setShowCitationModal] = useState(false);
 
-  const handleFilePick = useCallback(() => {
-    setFileName('research_paper_final.docx');
-    setInputText('This is a sample text that would be extracted from the document for originality checking...');
+  const handleFilePick = useCallback(async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+        multiple: false,
+        type: [
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'text/plain',
+        ],
+      });
+
+      if (result.canceled || !result.assets[0]) {
+        return;
+      }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user?.id) {
+        setState({ type: 'ERROR', message: 'Please sign in before uploading a file.' });
+        return;
+      }
+
+      const asset = result.assets[0];
+      const response = await fetch(asset.uri);
+      const fileBlob = await response.blob();
+      const fileContentBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+          const base64 = dataUrl.split(',')[1];
+          if (!base64) {
+            reject(new Error('File encoding failed.'));
+            return;
+          }
+          resolve(base64);
+        };
+        reader.onerror = () => reject(new Error('File encoding failed.'));
+        reader.readAsDataURL(fileBlob);
+      });
+
+      const { data, error } = await supabase.functions.invoke('upload-to-storage', {
+        body: {
+          fileContentBase64,
+          fileName: asset.name,
+          userId: session.user.id,
+          bucket: 'originality-checks',
+        },
+      });
+
+      if (error || !data?.storagePath) {
+        throw error || new Error('File upload failed.');
+      }
+
+      setFileName(asset.name);
+      setFilePath(data.storagePath);
+      setInputText('');
+      setState({ type: 'IDLE' });
+    } catch {
+      setFileName(null);
+      setFilePath(null);
+      setState({ type: 'ERROR', message: 'The file could not be uploaded. Please try again.' });
+    }
   }, []);
 
   const handleCheckOriginality = useCallback(async () => {
@@ -61,18 +176,28 @@ const OriginalityCheckerScreen: React.FC = () => {
       const { data, error } = await supabase.functions.invoke('check-originality', {
         body: {
           text: inputText.trim() || undefined,
-          file_path: fileName || undefined,
+          file_path: filePath || undefined,
           user_id: session?.user?.id,
         },
       });
 
       if (error) {
+        let functionMessage = '';
+        if (error.context && typeof error.context.text === 'function') {
+          try {
+            const rawBody = await error.context.text();
+            const parsed = JSON.parse(rawBody);
+            functionMessage = typeof parsed?.error === 'string' ? parsed.error : '';
+          } catch {
+            functionMessage = '';
+          }
+        }
+
         const msg =
-          error.context?.status === 400
-            ? 'Please enter text or select a file before checking.'
-            : error.message?.includes('fetch')
-              ? 'Unable to connect. Please check your internet and try again.'
-              : 'The originality check could not complete. Please try again.';
+          functionMessage ||
+          (error.message?.includes('fetch')
+            ? 'Unable to connect. Please check your internet and try again.'
+            : 'The originality check could not complete. Please try again.');
         setState({ type: 'ERROR', message: msg });
         return;
       }
@@ -81,11 +206,12 @@ const OriginalityCheckerScreen: React.FC = () => {
     } catch {
       setState({ type: 'ERROR', message: 'Something went wrong. Please try again.' });
     }
-  }, [inputText, fileName]);
+  }, [fileName, filePath, inputText]);
 
   const handleReset = useCallback(() => {
     setInputText('');
     setFileName(null);
+    setFilePath(null);
     setState({ type: 'IDLE' });
     setSelectedSource(null);
     setShowCitationModal(false);
@@ -107,7 +233,6 @@ const OriginalityCheckerScreen: React.FC = () => {
     <AppLayout
       title="Originality Checker"
       subtitle="Check your work for similarity against academic databases"
-      headerRight={<HeaderIconButton icon="shield" />}
     >
       <WireframeCard style={{ marginBottom: 16 }}>
         <Text style={{ color: colors.text, fontSize: 16, fontWeight: '800', marginBottom: 14 }}>Select File or Enter Text</Text>
@@ -210,7 +335,7 @@ const OriginalityCheckerScreen: React.FC = () => {
               <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>{state.data.originalityScore}% originality</Text>
             </View>
             <Text style={{ color: colors.muted, fontSize: 13 }}>
-              {state.data.originalityScore >= 90 ? 'High originality' : state.data.originalityScore >= 75 ? 'Medium originality' : 'Low originality'}
+              {state.data.originalityScore >= 80 ? 'High originality' : state.data.originalityScore >= 60 ? 'Medium originality' : 'Low originality'}
             </Text>
           </WireframeCard>
 
@@ -251,7 +376,23 @@ const OriginalityCheckerScreen: React.FC = () => {
 
           <WireframeCard>
             <Text style={{ color: colors.text, fontSize: 17, fontWeight: '800', marginBottom: 12 }}>Highlighted Text</Text>
-            <Text style={{ color: colors.text, fontSize: 14, lineHeight: 21 }}>{state.data.highlightedText}</Text>
+            <Text style={{ color: colors.text, fontSize: 14, lineHeight: 21 }}>
+              {buildHighlightedSegments(
+                state.data.highlightedText,
+                state.data.similaritySources.map((source) => source.matchedText)
+              ).map((segment, index) => (
+                <Text
+                  key={`${segment.text}-${index}`}
+                  style={segment.highlighted ? {
+                    backgroundColor: colors.accentSoft,
+                    color: colors.text,
+                    fontWeight: '700',
+                  } : undefined}
+                >
+                  {segment.text}
+                </Text>
+              ))}
+            </Text>
           </WireframeCard>
         </ScrollView>
       ) : null}

@@ -8,7 +8,6 @@ import type { RootParamList } from '@/navigation/types';
 import { mapAuthError } from '@/utils/supabase/supabaseErrorHandler';
 import {
   AppLayout,
-  HeaderIconButton,
   WireframeCard,
   WireframePill,
   useWireframeTheme,
@@ -33,7 +32,7 @@ const SearchScreen: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState({ department: 'All', year: 'All' });
   const [capstones, setCapstones] = useState<CapstoneItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -101,7 +100,6 @@ const SearchScreen: React.FC = () => {
     <AppLayout
       title="Search archive"
       subtitle="Explore capstone studies, filter by department, and jump into promising ideas."
-      headerRight={<HeaderIconButton icon="sliders" />}
     >
       <WireframeCard style={{ marginBottom: 16 }}>
         <View
@@ -186,7 +184,14 @@ const SearchScreen: React.FC = () => {
           {loading ? <ActivityIndicator color={wireframeColors.accent} /> : null}
         </View>
 
-        {capstones.length === 0 && !loading ? (
+        {loading ? (
+          <View style={{ alignItems: 'center', justifyContent: 'center', paddingVertical: 24 }}>
+            <ActivityIndicator color={wireframeColors.accent} />
+            <Text style={{ color: wireframeColors.muted, fontSize: 13, marginTop: 12 }}>
+              Loading capstones...
+            </Text>
+          </View>
+        ) : capstones.length === 0 ? (
           <Text style={{ color: wireframeColors.muted, fontSize: 13 }}>
             No capstones matched this combination yet. Try broadening the search.
           </Text>
