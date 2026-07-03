@@ -76,7 +76,7 @@ const SubmitTopicScreen: React.FC = () => {
               borderRadius: 20,
               borderWidth: 1,
               borderColor: errors.abstract ? wireframeColors.danger : wireframeColors.line,
-              backgroundColor: '#FAFCFA',
+              backgroundColor: wireframeColors.inputBg,
               paddingHorizontal: 16,
               paddingVertical: 14,
               marginBottom: 8,
@@ -86,7 +86,7 @@ const SubmitTopicScreen: React.FC = () => {
               value={abstract}
               onChangeText={setAbstract}
               placeholder="Describe the problem, users, and expected output."
-              placeholderTextColor="#95A79D"
+              placeholderTextColor={wireframeColors.placeholder}
               multiline
               textAlignVertical="top"
               style={{ color: wireframeColors.text, minHeight: 120, fontSize: 14 }}

@@ -444,23 +444,47 @@ export const AppProvider = ({ children }: AppProviderProps) => {
       return;
     }
 
-    await supabase
+    const previousNotifications = messageNotifications;
+    const previousUnreadCount = unreadMessageCount;
+    setUnreadMessageCount(0);
+    setMessageNotifications([]);
+
+    const { error: updateError } = await supabase
       .from('chat_messages')
       .update({ is_read: true })
       .eq('receiver_id', user.id)
       .eq('is_read', false);
 
+    if (updateError) {
+      setUnreadMessageCount(previousUnreadCount);
+      setMessageNotifications(previousNotifications);
+      throw updateError;
+    }
+
+    await Notifications.dismissAllNotificationsAsync();
     await fetchMessageNotifications();
-  }, [fetchMessageNotifications, user]);
+  }, [fetchMessageNotifications, messageNotifications, unreadMessageCount, user]);
 
   const markMessageNotificationRead = useCallback(async (id: string) => {
-    await supabase
+    const previousNotifications = messageNotifications;
+    const previousUnreadCount = unreadMessageCount;
+    setMessageNotifications((current) => current.filter((item) => item.id !== id));
+    setUnreadMessageCount((current) => Math.max(0, current - 1));
+
+    const { error: updateError } = await supabase
       .from('chat_messages')
       .update({ is_read: true })
       .eq('id', id);
 
+    if (updateError) {
+      setMessageNotifications(previousNotifications);
+      setUnreadMessageCount(previousUnreadCount);
+      throw updateError;
+    }
+
+    await Notifications.dismissAllNotificationsAsync();
     await fetchMessageNotifications();
-  }, [fetchMessageNotifications]);
+  }, [fetchMessageNotifications, messageNotifications, unreadMessageCount]);
 
   return (
     <AppContext.Provider

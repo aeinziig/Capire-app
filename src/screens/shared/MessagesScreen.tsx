@@ -111,6 +111,13 @@ const MessagesScreen: React.FC = () => {
       return;
     }
 
+    setConversations((current) => current.map((conversation) => (
+      conversation.partnerId === partnerId ? { ...conversation, unreadCount: 0 } : conversation
+    )));
+    setArchivedConversations((current) => current.map((conversation) => (
+      conversation.partnerId === partnerId ? { ...conversation, unreadCount: 0 } : conversation
+    )));
+
     await supabase
       .from('chat_messages')
       .update({ is_read: true })
