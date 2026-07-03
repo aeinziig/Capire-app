@@ -5,7 +5,7 @@ export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   ForgotPassword: undefined;
-  OTPVerification: undefined;
+  OTPVerification: { email: string };
   LegalDocument: { document: 'terms' | 'privacy' };
   MainTabs: NavigatorScreenParams<TabParamList> | undefined;
   CapstoneDetail: { capstoneId: string };
