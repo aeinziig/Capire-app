@@ -5,6 +5,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import CitationBottomSheet from '../shared/CitationBottomSheet';
 import {
   AppLayout,
+  HeaderIconButton,
   WireframeCard,
   useWireframeTheme,
 } from '@/components/wireframe/Wireframe';
@@ -233,6 +234,7 @@ const OriginalityCheckerScreen: React.FC = () => {
     <AppLayout
       title="Originality Checker"
       subtitle="Check your work for similarity against academic databases"
+      headerRight={<HeaderIconButton icon="rotate-ccw" onPress={handleReset} />}
     >
       <WireframeCard style={{ marginBottom: 16 }}>
         <Text style={{ color: colors.text, fontSize: 16, fontWeight: '800', marginBottom: 14 }}>Select File or Enter Text</Text>

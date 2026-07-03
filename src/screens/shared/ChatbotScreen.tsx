@@ -1,8 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Keyboard, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/services/supabase';
+import type { RootParamList } from '@/navigation/types';
 import {
   AppLayout,
   HeaderIconButton,
@@ -20,10 +23,21 @@ type Message = {
 const ChatbotScreen: React.FC = () => {
   const wireframeColors = useWireframeTheme();
   const inputTextColor = '#183126';
+  const navigation = useNavigation<NativeStackNavigationProp<RootParamList>>();
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [composerHeight, setComposerHeight] = useState(0);
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const isTypingRef = useRef(false);
+  const shouldStickToBottomRef = useRef(true);
+  const keyboardOffset = Math.round(keyboardHeight / 2);
+
+  const scrollToBottom = useCallback((animated = true) => {
+    scrollViewRef.current?.scrollToEnd({ animated });
+  }, []);
 
   useEffect(() => {
     setMessages([
@@ -35,6 +49,21 @@ const ChatbotScreen: React.FC = () => {
       },
     ]);
   }, []);
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+      scrollToBottom(false);
+    });
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [scrollToBottom]);
 
   const sendMessage = async () => {
     const trimmedInput = input.trim();
@@ -49,7 +78,9 @@ const ChatbotScreen: React.FC = () => {
 
     setMessages((current) => [...current, userMessage]);
     setInput('');
+    shouldStickToBottomRef.current = true;
     setLoading(true);
+    requestAnimationFrame(() => scrollToBottom());
 
     try {
       const history = messages.slice(-8).map((message) => ({
@@ -78,6 +109,9 @@ const ChatbotScreen: React.FC = () => {
           timestamp: new Date().toISOString(),
         },
       ]);
+      if (shouldStickToBottomRef.current && !isTypingRef.current) {
+        requestAnimationFrame(() => scrollToBottom());
+      }
     } catch {
       setMessages((current) => [
         ...current,
@@ -88,6 +122,9 @@ const ChatbotScreen: React.FC = () => {
           timestamp: new Date().toISOString(),
         },
       ]);
+      if (shouldStickToBottomRef.current && !isTypingRef.current) {
+        requestAnimationFrame(() => scrollToBottom());
+      }
     } finally {
       setLoading(false);
     }
@@ -97,13 +134,25 @@ const ChatbotScreen: React.FC = () => {
     <AppLayout
       title="CAPIRE Assistant"
       subtitle="Wireframe-style research guidance, brainstorming, and writing support."
-      headerRight={<HeaderIconButton icon="settings" />}
+      headerRight={<HeaderIconButton icon="settings" onPress={() => navigation.navigate('Settings')} />}
       scroll={false}
     >
       <View style={{ flex: 1 }}>
         <ScrollView
+          ref={scrollViewRef}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 12 }}
+          contentContainerStyle={{ paddingBottom: composerHeight + keyboardOffset + 12 }}
+          onContentSizeChange={() => {
+            if (shouldStickToBottomRef.current && !isTypingRef.current) {
+              scrollToBottom(false);
+            }
+          }}
+          onScroll={(event) => {
+            const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+            const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+            shouldStickToBottomRef.current = distanceFromBottom < 120;
+          }}
+          scrollEventThrottle={16}
         >
           <WireframeCard style={{ marginBottom: 16 }}>
             <Text style={{ color: wireframeColors.text, fontSize: 16, fontWeight: '800', marginBottom: 6 }}>
@@ -200,7 +249,16 @@ const ChatbotScreen: React.FC = () => {
           {loading ? <Text style={{ color: wireframeColors.muted, fontSize: 12, marginBottom: 10 }}>Assistant is typing...</Text> : null}
         </ScrollView>
 
-        <WireframeCard style={{ marginTop: 'auto' }}>
+        <View
+          onLayout={(event) => setComposerHeight(event.nativeEvent.layout.height)}
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: keyboardOffset,
+          }}
+        >
+          <WireframeCard>
           <Text style={{ color: wireframeColors.text, fontSize: 13, fontWeight: '800', marginBottom: 10 }}>Ask CAPIRE</Text>
           <View
             style={{
@@ -216,10 +274,19 @@ const ChatbotScreen: React.FC = () => {
           >
             <TextInput
               value={input}
-              onChangeText={setInput}
+              onChangeText={(value) => {
+                isTypingRef.current = value.trim().length > 0;
+                setInput(value);
+              }}
               placeholder="Ask about your capstone project..."
               placeholderTextColor="#95A79D"
               multiline
+              onFocus={() => {
+                isTypingRef.current = true;
+              }}
+              onBlur={() => {
+                isTypingRef.current = input.trim().length > 0;
+              }}
               style={{ flex: 1, color: inputTextColor, fontSize: 14, maxHeight: 96, paddingVertical: 12 }}
               onSubmitEditing={sendMessage}
             />
@@ -240,7 +307,8 @@ const ChatbotScreen: React.FC = () => {
               <Feather name="send" size={18} color={!input.trim() || loading ? '#9EAEA6' : '#FFFFFF'} />
             </TouchableOpacity>
           </View>
-        </WireframeCard>
+          </WireframeCard>
+        </View>
       </View>
     </AppLayout>
   );
