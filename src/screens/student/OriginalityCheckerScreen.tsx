@@ -1,7 +1,14 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, Image, ActivityIndicator, FlatList, Modal } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { ActivityIndicator, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { CitationBottomSheet } from '../shared/CitationBottomSheet';
+import CitationBottomSheet from '../shared/CitationBottomSheet';
+import {
+  AppLayout,
+  HeaderIconButton,
+  WireframeCard,
+  useWireframeTheme,
+} from '@/components/wireframe/Wireframe';
+import { supabase } from '@/services/supabase';
 
 type SimilaritySource = {
   id: number;
@@ -13,298 +20,258 @@ type SimilaritySource = {
   sourceText: string;
 };
 
+type ResultsType = {
+  originalityScore: number;
+  similaritySources: SimilaritySource[];
+  highlightedText: string;
+};
+
+type OriginalityCheckerState =
+  | { type: 'IDLE' }
+  | { type: 'CHECKING' }
+  | { type: 'RESULTS'; data: ResultsType }
+  | { type: 'ERROR'; message: string };
+
 const OriginalityCheckerScreen: React.FC = () => {
+  const colors = useWireframeTheme();
   const [inputText, setInputText] = useState('');
   const [fileName, setFileName] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<{
-    originalityScore: number;
-    similaritySources: SimilaritySource[];
-    highlightedText: string;
-  } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [showCitationModal, setShowCitationModal] = useState(false);
+  const [state, setState] = useState<OriginalityCheckerState>({ type: 'IDLE' });
   const [selectedSource, setSelectedSource] = useState<SimilaritySource | null>(null);
+  const [showCitationModal, setShowCitationModal] = useState(false);
 
-  // Simulate file picking (in real app, would use document picker or image picker)
-  const handleFilePick = () => {
-    // Simulate picking a file
+  const handleFilePick = useCallback(() => {
     setFileName('research_paper_final.docx');
     setInputText('This is a sample text that would be extracted from the document for originality checking...');
-  };
+  }, []);
 
-  const handleCheckOriginality = async () => {
+  const handleCheckOriginality = useCallback(async () => {
     if (!inputText.trim() && !fileName) {
-      setError('Please enter text or select a file to check');
+      setState({ type: 'ERROR', message: 'Please enter text or select a file to check.' });
       return;
     }
 
-    setLoading(true);
-    setError(null);
+    setState({ type: 'CHECKING' });
 
     try {
-      // Simulate API call to originality checking service
-      // In real app, this would send data to backend/Supabase function
-      setTimeout(() => {
-        const mockResult = {
-          originalityScore: 82,
-          similaritySources: [
-            {
-              id: 1,
-              title: 'Machine Learning Approaches to Cancer Detection',
-              author: 'Smith, J. et al.',
-              year: '2022',
-              similarityPercentage: 18,
-              matchedText: 'machine learning algorithms for detecting early signs',
-              sourceText: 'machine learning algorithms for detecting early signs of disease from medical images'
-            },
-            {
-              id: 2,
-              title: 'Deep Learning in Medical Imaging Review',
-              author: 'Johnson, A. & Lee, K.',
-              year: '2023',
-              similarityPercentage: 12,
-              matchedText: 'CNN architecture that achieves high accuracy',
-              sourceText: 'CNN architecture that achieves high accuracy on medical imaging tasks'
-            }
-          ],
-          highlightedText: 'This research explores the use of [machine learning algorithms] for detecting early signs of cancer from medical imaging data. We propose a novel [CNN architecture] that achieves 94.2% accuracy on the test dataset.'
-        };
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-        setResults(mockResult);
-        setLoading(false);
-      }, 2000);
-    } catch (err: any) {
-      setError(err.message || 'Originality check failed');
-      setLoading(false);
+      const { data, error } = await supabase.functions.invoke('check-originality', {
+        body: {
+          text: inputText.trim() || undefined,
+          file_path: fileName || undefined,
+          user_id: session?.user?.id,
+        },
+      });
+
+      if (error) {
+        const msg =
+          error.context?.status === 400
+            ? 'Please enter text or select a file before checking.'
+            : error.message?.includes('fetch')
+              ? 'Unable to connect. Please check your internet and try again.'
+              : 'The originality check could not complete. Please try again.';
+        setState({ type: 'ERROR', message: msg });
+        return;
+      }
+
+      setState({ type: 'RESULTS', data });
+    } catch {
+      setState({ type: 'ERROR', message: 'Something went wrong. Please try again.' });
     }
-  };
+  }, [inputText, fileName]);
 
-  const handleReset = () => {
+  const handleReset = useCallback(() => {
     setInputText('');
     setFileName(null);
-    setResults(null);
-    setError(null);
+    setState({ type: 'IDLE' });
     setSelectedSource(null);
     setShowCitationModal(false);
-  };
+  }, []);
 
-  const handleViewCitation = (source: SimilaritySource) => {
-    setSelectedSource(source);
-    setShowCitationModal(true);
-  };
+  const score = state.type === 'RESULTS' ? state.data.originalityScore : null;
+  const scoreColor =
+    score === null
+      ? colors.accent
+      : score <= 30
+        ? '#40916C'
+        : score <= 60
+          ? '#D4A017'
+          : score <= 79
+            ? '#E76F51'
+            : '#C1121F';
 
   return (
-    <View className="flex-1 bg-white">
-      <View className="p-4">
-        <View className="space-y-4">
-          <Text className="text-2xl font-bold text-gray-800">
-            Originality Checker
-          </Text>
-          <Text className="text-sm text-gray-500">
-            Check your work for similarity against academic databases
-          </Text>
-        </View>
-
-        {/* File Input Section */}
-        <View className="space-y-3">
-          <Text className="font-medium text-gray-700 mb-1">
-            Select File or Enter Text
-          </Text>
-
-          <View className="border border-gray-300 rounded-lg p-4 flex items-center space-x-3">
-            <Feather name="paperclip" size={24} className="text-gray-400" />
-            <TouchableOpacity
-              onPress={handleFilePick}
-              activeOpacity={0.7}
-            >
-              <Text className="font-medium text-gray-600">
-                {fileName || 'Select File'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {fileName && (
-            <View className="mt-2 p-3 bg-primary-50 rounded-lg">
-              <Text className="text-sm text-primary-600">
-                Selected: {fileName}
-              </Text>
-            </View>
-          )}
-        </View>
-
-        {/* Text Input Section */}
-        <View className="space-y-3">
-          <Text className="font-medium text-gray-700 mb-1">
-            Or Paste Text Directly
-          </Text>
-
-          <TextInput
-            placeholder="Paste your text here to check originality..."
-            value={inputText}
-            onChangeText={setInputText}
-            multiline
-            minHeight={100}
-            className="border border-gray-300 rounded-lg p-4 focus:border-primary-500 focus:ring-2 focus:ring-primary-200 text-base"
-          />
-        </View>
-
-        {error && (
-          <View className="p-3 bg-red-50 rounded-lg">
-            <Text className="text-sm text-red-600">{error}</Text>
-          </View>
-        )}
-
-        <View className="space-y-3">
+    <AppLayout
+      title="Originality Checker"
+      subtitle="Check your work for similarity against academic databases"
+      headerRight={<HeaderIconButton icon="shield" />}
+    >
+      <WireframeCard style={{ marginBottom: 16 }}>
+        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '800', marginBottom: 14 }}>Select File or Enter Text</Text>
+        <TouchableOpacity
+          onPress={handleFilePick}
+          activeOpacity={0.85}
+          style={{
+            minHeight: 52,
+            borderRadius: 16,
+            borderWidth: 1,
+            borderColor: colors.line,
+            backgroundColor: colors.inputBg,
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingHorizontal: 14,
+            marginBottom: 12,
+          }}
+        >
+          <Feather name="paperclip" size={18} color={colors.muted} />
+          <Text style={{ color: colors.text, marginLeft: 10 }}>{fileName || 'Select File'}</Text>
+        </TouchableOpacity>
+        <TextInput
+          placeholder="Paste your text here to check originality..."
+          placeholderTextColor="#95A79D"
+          value={inputText}
+          onChangeText={setInputText}
+          multiline
+          textAlignVertical="top"
+          style={{
+            minHeight: 150,
+            borderRadius: 18,
+            borderWidth: 1,
+            borderColor: colors.line,
+            backgroundColor: colors.inputBg,
+            color: colors.text,
+            paddingHorizontal: 14,
+            paddingVertical: 14,
+          }}
+        />
+        {state.type === 'ERROR' ? <Text style={{ color: colors.danger, fontSize: 12, marginTop: 10 }}>{state.message}</Text> : null}
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
           <TouchableOpacity
             onPress={handleCheckOriginality}
-            disabled={loading || (!inputText.trim() && !fileName)}
-            className={`w-full flex items-center justify-center px-4 py-2 bg-primary-600 rounded-lg ${
-              loading || (!inputText.trim() && !fileName) ? 'opacity-70' : ''
-            }`}
+            disabled={!(inputText.trim() || fileName) || state.type === 'CHECKING'}
+            activeOpacity={0.85}
+            style={{
+              flex: 1,
+              minHeight: 52,
+              borderRadius: 18,
+              backgroundColor: colors.accent,
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: !(inputText.trim() || fileName) || state.type === 'CHECKING' ? 0.55 : 1,
+            }}
           >
-            {loading ? (
-              <>
-                <Feather name="loader" size={16} color="white" className="mr-2" />
-                <Text className="text-white font-medium">Checking...</Text>
-              </>
-            ) : (
-              <Text className="text-white font-medium">Check Originality</Text>
-            )}
+            <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>
+              {state.type === 'CHECKING' ? 'Checking...' : state.type === 'RESULTS' ? 'Check Again' : 'Check Originality'}
+            </Text>
           </TouchableOpacity>
-
           <TouchableOpacity
             onPress={handleReset}
-            activeOpacity={0.7}
-            className="w-full flex items-center justify-center px-4 py-2 text-sm text-gray-500"
+            activeOpacity={0.85}
+            style={{
+              flex: 1,
+              minHeight: 52,
+              borderRadius: 18,
+              borderWidth: 1,
+              borderColor: colors.line,
+              backgroundColor: colors.inputBg,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
           >
-            Reset
+            <Text style={{ color: colors.text, fontWeight: '700' }}>Reset</Text>
           </TouchableOpacity>
         </View>
+      </WireframeCard>
 
-        {/* Results Section */}
-        {results && (
-          <View className="space-y-4">
-            <View className="border-t border-gray-200 pt-4">
-              <Text className="font-semibold text-gray-800 mb-2">
-                Originality Results
-              </Text>
+      {state.type === 'CHECKING' ? (
+        <WireframeCard style={{ alignItems: 'center' }}>
+          <ActivityIndicator color={colors.accent} />
+          <Text style={{ color: colors.muted, marginTop: 12 }}>Analyzing your document...</Text>
+        </WireframeCard>
+      ) : null}
 
-              {/* Originality Score */}
-              <View className="mb-4">
-                <Text className="text-sm font-medium text-gray-700">
-                  Originality Score:
-                </Text>
-                <View className="flex items-center space-x-2 mt-1">
-                  <View className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                    results.originalityScore >= 90
-                      ? 'bg-green-500'
-                      : results.originalityScore >= 75
-                        ? 'bg-yellow-500'
-                        : 'bg-red-500'
-                  }`}>
-                    <Text className="text-white font-medium">
-                      {results.originalityScore}%
-                    </Text>
-                  </View>
-                  <Text className="text-sm font-medium text-gray-600">
-                    {results.originalityScore >= 90 ? 'High' : results.originalityScore >= 75 ? 'Medium' : 'Low'}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Similarity Sources */}
-              {results.similaritySources.length > 0 && (
-                <View className="mb-4">
-                  <Text className="font-semibold text-gray-800 mb-2">
-                    Similarity Sources
-                  </Text>
-                  <View className="space-y-2">
-                    {results.similaritySources.map((source, index) => (
-                      <View key={index} className="p-3 bg-gray-50 rounded-lg">
-                        <View className="flex justify-between items-start mb-2">
-                          <Text className="font-medium text-gray-800">
-                            {source.title}
-                          </Text>
-                          <Text className="text-sm text-gray-500">
-                            {source.similarityPercentage}% match
-                          </Text>
-                        </View>
-
-                        <View className="space-y-2">
-                          <Text className="text-sm text-gray-600">
-                            <Text className="font-medium">By:</Text> {source.author} ({source.year})
-                          </Text>
-                        </View>
-
-                        <View className="mt-2 p-3 bg-white rounded-lg border border-gray-200">
-                          <Text className="text-xs text-gray-600">
-                            <Text className="font-medium">Matched text:</Text> "{source.matchedText}"
-                          </Text>
-                          <Text className="text-xs text-gray-600 mt-1">
-                            <Text className="font-medium">Source text:</Text> "{source.sourceText}"
-                          </Text>
-                        </View>
-
-                        {/* View Citation Button */}
-                        <View className="mt-3">
-                          <TouchableOpacity
-                            onPress={() => handleViewCitation(source)}
-                            activeOpacity={0.7}
-                            className="w-full flex items-center justify-center px-4 py-2 bg-primary-50 rounded-lg"
-                          >
-                            <Feather name="file-text" size={20} className="text-primary-600" />
-                            <Text className="text-sm font-medium text-gray-600">
-                              View APA Citation
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-              )}
-
-              {/* Highlighted Text */}
-              <View className="mb-4">
-                <Text className="font-semibold text-gray-800 mb-2">
-                  Text with Highlighted Matches
-                </Text>
-                <View className="p-3 bg-gray-50 rounded-lg">
-                  <Text className="text-gray-700">
-                    {/* Simple highlighting - in real app would be more sophisticated */}
-                    {results.highlightedText
-                      .replace(/\[(.*?)\]/g, '<span className="bg-primary-200">$1</span>')
-                    }
-                  </Text>
-                </View>
-              </View>
+      {state.type === 'RESULTS' ? (
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <WireframeCard style={{ marginBottom: 16 }}>
+            <Text style={{ color: colors.text, fontSize: 17, fontWeight: '800', marginBottom: 12 }}>Originality Results</Text>
+            <View
+              style={{
+                alignSelf: 'flex-start',
+                borderRadius: 999,
+                backgroundColor: scoreColor,
+                paddingHorizontal: 14,
+                paddingVertical: 8,
+                marginBottom: 10,
+              }}
+            >
+              <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>{state.data.originalityScore}% originality</Text>
             </View>
-          </View>
-        )}
-      </View>
+            <Text style={{ color: colors.muted, fontSize: 13 }}>
+              {state.data.originalityScore >= 90 ? 'High originality' : state.data.originalityScore >= 75 ? 'Medium originality' : 'Low originality'}
+            </Text>
+          </WireframeCard>
 
-      {/* Citation Modal */}
-      <Modal
-        transparent={true}
-        visible={showCitationModal}
-        onRequestClose={() => setShowCitationModal(false)}
-      >
-        <View className="flex-1 items-center justify-center bg-black-500">
-          {selectedSource && (
+          <WireframeCard style={{ marginBottom: 16 }}>
+            <Text style={{ color: colors.text, fontSize: 17, fontWeight: '800', marginBottom: 12 }}>Similarity Sources</Text>
+            {state.data.similaritySources.map((source) => (
+              <View
+                key={source.id}
+                style={{
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: colors.line,
+                  backgroundColor: colors.inputBg,
+                  padding: 14,
+                  marginBottom: 10,
+                }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{source.title}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 6 }}>
+                  {source.author} ({source.year}) • {source.similarityPercentage}% match
+                </Text>
+                <Text style={{ color: colors.text, fontSize: 13, marginTop: 10 }}>Matched: "{source.matchedText}"</Text>
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 8 }}>Source: "{source.sourceText}"</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setSelectedSource(source);
+                    setShowCitationModal(true);
+                  }}
+                  activeOpacity={0.85}
+                  style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12 }}
+                >
+                  <Feather name="file-text" size={16} color={colors.accent} />
+                  <Text style={{ color: colors.accent, fontWeight: '700', marginLeft: 8 }}>View APA Citation</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </WireframeCard>
+
+          <WireframeCard>
+            <Text style={{ color: colors.text, fontSize: 17, fontWeight: '800', marginBottom: 12 }}>Highlighted Text</Text>
+            <Text style={{ color: colors.text, fontSize: 14, lineHeight: 21 }}>{state.data.highlightedText}</Text>
+          </WireframeCard>
+        </ScrollView>
+      ) : null}
+
+      <Modal transparent visible={showCitationModal} onRequestClose={() => setShowCitationModal(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.35)' }}>
+          {selectedSource ? (
             <CitationBottomSheet
               sourceData={{
-                type: 'Journal Article', // Default type, could be made dynamic
+                type: 'Journal Article',
                 title: selectedSource.title,
                 author: selectedSource.author,
                 year: selectedSource.year,
-                // Additional fields could be added based on available data
               }}
+              onClose={() => setShowCitationModal(false)}
             />
-          )}
+          ) : null}
         </View>
       </Modal>
-    </View>
+    </AppLayout>
   );
 };
 

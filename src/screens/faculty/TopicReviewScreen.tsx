@@ -1,280 +1,263 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, TextInput, Modal, ActivityIndicator, FlatList } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/services/supabase';
+import { mapAuthError } from '@/utils/supabase/supabaseErrorHandler';
+import {
+  AppLayout,
+  HeaderIconButton,
+  WireframeCard,
+  WireframePill,
+  useWireframeTheme,
+} from '@/components/wireframe/Wireframe';
+
+type TopicStatus = 'pending' | 'approved' | 'rejected' | 'needs_revision';
 
 type TopicItem = {
-  id: number;
+  id: string;
   title: string;
   studentName: string;
   department: string;
   submittedAt: string;
   abstract: string;
-  originalityScore: number;
-  status: 'pending' | 'approved' | 'rejected';
+  originalityScore: number | null;
+  status: TopicStatus;
 };
 
+type TopicRow = {
+  id: string;
+  title: string;
+  author: string;
+  department: string;
+  created_at: string;
+  abstract: string;
+  originalityScore: number | null;
+  status?: TopicStatus | null;
+};
+
+const filters: { label: string; value: TopicStatus | 'all' }[] = [
+  { label: 'All', value: 'all' },
+  { label: 'Pending', value: 'pending' },
+  { label: 'Approved', value: 'approved' },
+  { label: 'Needs Revision', value: 'needs_revision' },
+  { label: 'Rejected', value: 'rejected' },
+];
+
 const TopicReviewScreen: React.FC = () => {
+  const { user, loading: authLoading } = useAuth();
+  const wireframeColors = useWireframeTheme();
   const [topics, setTopics] = useState<TopicItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [selectedTopic, setSelectedTopic] = useState<TopicItem | null>(null);
   const [reviewComment, setReviewComment] = useState('');
+  const [filter, setFilter] = useState<TopicStatus | 'all'>('pending');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  // Mock data - in real app this would come from Supabase
-  const mockTopics: TopicItem[] = [
-    {
-      id: 1,
-      title: 'AI Applications in Early Cancer Detection',
-      studentName: 'Alex Johnson',
-      department: 'Computer Science',
-      submittedAt: '2023-11-20',
-      abstract: 'This research explores the use of machine learning algorithms for detecting early signs of cancer from medical imaging data.',
-      originalityScore: 88,
-      status: 'pending'
-    },
-    {
-      id: 2,
-      title: 'Sustainable Urban Planning for Growing Cities',
-      studentName: 'Maria Garcia',
-      department: 'Urban Planning',
-      submittedAt: '2023-11-18',
-      abstract: 'Analyzing strategies for sustainable urban development in rapidly growing metropolitan areas.',
-      originalityScore: 92,
-      status: 'pending'
-    },
-    {
-      id: 3,
-      title: 'Blockchain Technology for Secure Voting Systems',
-      studentName: 'David Kim',
-      department: 'Political Science',
-      submittedAt: '2023-11-15',
-      abstract: 'Examining the feasibility of using blockchain technology to create secure and transparent voting systems.',
-      originalityScore: 76,
-      status: 'pending'
+  const fetchTopics = async () => {
+    if (!user) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const role = user.user_metadata?.role || user.app_metadata?.role;
+      if (role !== 'faculty') throw new Error('Access denied. Faculty access required.');
+
+      const { data, error: queryError } = await supabase
+        .from('capstone_projects')
+        .select('id, title, author, department, created_at, abstract, originalityScore, status')
+        .order('created_at', { ascending: false });
+
+      if (queryError) throw queryError;
+
+      setTopics(
+        (((data as TopicRow[] | null) || []).map((topic) => ({
+          id: topic.id,
+          title: topic.title,
+          studentName: topic.author,
+          department: topic.department,
+          submittedAt: new Date(topic.created_at).toLocaleDateString(),
+          abstract: topic.abstract,
+          originalityScore: topic.originalityScore,
+          status: topic.status || 'pending',
+        })))
+      );
+    } catch (err: unknown) {
+      setError(mapAuthError(err));
+      setTopics([]);
+    } finally {
+      setLoading(false);
     }
-  ];
-
-  React.useEffect(() => {
-    // Simulate loading topics from database
-    setTimeout(() => {
-      setTopics(mockTopics);
-      setLoading(false);
-    }, 1000);
-  }, []);
-
-  const handleApprove = () => {
-    if (!selectedTopic) return;
-
-    setLoading(true);
-    // In real app, this would update the topic status in Supabase
-    setTimeout(() => {
-      setTopics(prev =>
-        prev.map(topic =>
-          topic.id === selectedTopic!.id
-            ? { ...topic, status: 'approved' }
-            : topic
-        )
-      );
-      setSelectedTopic(null);
-      setReviewComment('');
-      setLoading(false);
-    }, 800);
   };
 
-  const handleReject = () => {
-    if (!selectedTopic) return;
+  useEffect(() => {
+    fetchTopics();
+  }, [user]);
 
+  const stats = useMemo(
+    () => ({
+      total: topics.length,
+      pending: topics.filter((topic) => topic.status === 'pending').length,
+      approved: topics.filter((topic) => topic.status === 'approved').length,
+      needs_revision: topics.filter((topic) => topic.status === 'needs_revision').length,
+      rejected: topics.filter((topic) => topic.status === 'rejected').length,
+    }),
+    [topics]
+  );
+
+  const filteredTopics = filter === 'all' ? topics : topics.filter((topic) => topic.status === filter);
+
+  const updateStatus = async (topic: TopicItem, status: TopicStatus) => {
     setLoading(true);
-    // In real app, this would update the topic status in Supabase
-    setTimeout(() => {
-      setTopics(prev =>
-        prev.map(topic =>
-          topic.id === selectedTopic!.id
-            ? { ...topic, status: 'rejected' }
-            : topic
-        )
-      );
+    try {
+      const { error: updateError } = await supabase.from('capstone_projects').update({ status }).eq('id', topic.id);
+      if (updateError) throw updateError;
+      setTopics((current) => current.map((item) => (item.id === topic.id ? { ...item, status } : item)));
       setSelectedTopic(null);
       setReviewComment('');
+    } catch (err: unknown) {
+      setError(mapAuthError(err));
+    } finally {
       setLoading(false);
-    }, 800);
+    }
   };
-
-  if (loading) {
-    return (
-      <View className="flex-1 items-center justify-center bg-gray-50">
-        <ActivityIndicator size="large" color="#2EA95B" />
-        <Text className="mt-4 text-gray-600">Loading topics...</Text>
-      </View>
-    );
-  }
-
-  const pendingTopics = topics.filter(topic => topic.status === 'pending');
-
-  if (pendingTopics.length === 0) {
-    return (
-      <View className="flex-1 bg-white">
-        <View className="p-8 items-center justify-center">
-          <Feather name="check-circle" size={48} className="text-green-500 mb-4" />
-          <Text className="text-lg font-medium text-gray-600">
-            All topics reviewed!
-          </Text>
-          <Text className="text-sm text-gray-500 text-center mt-2">
-            No pending topics awaiting review
-          </Text>
-        </View>
-      </View>
-    );
-  }
 
   return (
-    <View className="flex-1 bg-white">
-      <View className="p-4">
-        <View className="flex justify-between items-start mb-4">
-          <Text className="text-2xl font-bold text-gray-800">
-            Topic Review
-          </Text>
-          <Text className="text-sm text-gray-600">
-            {pendingTopics.length} pending
-          </Text>
-        </View>
-
-        <ScrollView className="mb-4" contentContainerClassName="pb-4">
-          {pendingTopics.map((topic, index) => (
-            <View
-              key={index}
-              onPress={() => {
-                setSelectedTopic(topic);
-                setReviewComment(topic.abstract || '');
-              }}
-              activeOpacity={0.7}
-              className="bg-white p-4 mb-3 rounded-lg shadow-sm border border-gray-200"
-            >
-              <View className="flex justify-between items-start mb-2">
-                <View className="flex-1">
-                  <Text className="text-lg font-medium text-gray-800">
-                    {topic.title}
-                  </Text>
-                  <Text className="text-sm text-gray-500 mt-1">
-                    by {topic.studentName} | {topic.department}
-                  </Text>
-                </View>
-                <View className="flex items-center space-x-2">
-                  <View className={`w-2 h-2 ${topic.originalityScore >= 90
-                    ? 'bg-green-500'
-                    : topic.originalityScore >= 75
-                      ? 'bg-yellow-500'
-                      : 'bg-red-500'`} /> }
-                  <Text className="text-sm font-medium text-gray-600">
-                    {topic.originalityScore}%
-                  </Text>
-                </View>
+    <AppLayout
+      title="Faculty review"
+      subtitle="Review submitted topics, check originality, and return clear decisions."
+      headerRight={<HeaderIconButton icon="clipboard" />}
+    >
+      {authLoading || (loading && topics.length === 0) ? (
+        <WireframeCard style={{ alignItems: 'center', paddingVertical: 28 }}>
+          <ActivityIndicator color={wireframeColors.accent} />
+          <Text style={{ color: wireframeColors.muted, marginTop: 12 }}>Loading topics...</Text>
+        </WireframeCard>
+      ) : (
+        <>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+            {[
+              ['Pending', stats.pending],
+              ['Approved', stats.approved],
+              ['Revision', stats.needs_revision],
+              ['Rejected', stats.rejected],
+            ].map(([label, value]) => (
+              <View key={String(label)} style={{ width: '48%' }}>
+                <WireframeCard>
+                  <Text style={{ color: wireframeColors.muted, fontSize: 12 }}>{label}</Text>
+                  <Text style={{ color: wireframeColors.text, fontSize: 24, fontWeight: '800', marginTop: 8 }}>{value}</Text>
+                </WireframeCard>
               </View>
-              <Text className="text-xs text-gray-400">
-                Submitted: {topic.submittedAt}
-              </Text>
-            </View>
-
-            {/* Preview abstract */}
-            {topic.abstract && (
-              <View className="mt-2">
-                <Text className="text-sm text-gray-600 line-clamp-2">
-                  {topic.abstract}
-                </Text>
-              </View>
-            )}
+            ))}
           </View>
-        ))}
-      </ScrollView>
 
-      {/* Review Modal */}
-      {selectedTopic && (
-        <View className="absolute bottom-0 left-0 right-0 bg-white p-6 border-t border-gray-200">
-          <View className="space-y-4">
-            <View className="flex justify-between items-start mb-2">
-              <Text className="text-lg font-semibold text-gray-800">
-                Reviewing: {selectedTopic.title}
-              </Text>
-              <Text className="text-sm text-gray-500">
-                by {selectedTopic.studentName}
-              </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {filters.map((item) => (
+                <WireframePill
+                  key={item.value}
+                  label={`${item.label} (${item.value === 'all' ? stats.total : stats[item.value]})`}
+                  active={filter === item.value}
+                  onPress={() => setFilter(item.value)}
+                />
+              ))}
             </View>
+          </ScrollView>
 
-            <View className="space-y-2">
-              <Text className="text-lg font-semibold text-gray-800">
-                Abstract
-              </Text>
-              <Text className="text-gray-700 leading-relaxed">
-                {selectedTopic.abstract}
-              </Text>
-            </View>
+          {error ? (
+            <WireframeCard style={{ marginBottom: 16 }}>
+              <Text style={{ color: wireframeColors.danger, fontSize: 13 }}>{error}</Text>
+            </WireframeCard>
+          ) : null}
 
-            <View className="space-y-2">
-              <Text className="text-lg font-semibold text-gray-800">
-                Review Comments
+          {filteredTopics.length === 0 ? (
+            <WireframeCard>
+              <Text style={{ color: wireframeColors.muted, fontSize: 13 }}>No topics match this filter.</Text>
+            </WireframeCard>
+          ) : (
+            filteredTopics.map((topic) => (
+              <TouchableOpacity key={topic.id} onPress={() => setSelectedTopic(topic)} activeOpacity={0.85}>
+                <WireframeCard style={{ marginBottom: 12 }}>
+                  <Text style={{ color: wireframeColors.text, fontSize: 16, fontWeight: '800' }}>{topic.title}</Text>
+                  <Text style={{ color: wireframeColors.muted, fontSize: 12, marginTop: 6 }}>
+                    {topic.studentName} • {topic.department} • {topic.submittedAt}
+                  </Text>
+                  <Text numberOfLines={2} style={{ color: wireframeColors.text, fontSize: 13, lineHeight: 19, marginTop: 10 }}>
+                    {topic.abstract}
+                  </Text>
+                  <Text style={{ color: wireframeColors.accent, fontSize: 12, fontWeight: '700', marginTop: 10 }}>
+                    Originality {topic.originalityScore == null ? 'N/A' : `${topic.originalityScore}%`} • {topic.status.replace('_', ' ')}
+                  </Text>
+                </WireframeCard>
+              </TouchableOpacity>
+            ))
+          )}
+        </>
+      )}
+
+      <Modal visible={!!selectedTopic} animationType="slide" transparent onRequestClose={() => setSelectedTopic(null)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.35)' }}>
+          {selectedTopic ? (
+            <View style={{ backgroundColor: wireframeColors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20 }}>
+              <Text style={{ color: wireframeColors.text, fontSize: 20, fontWeight: '800' }}>{selectedTopic.title}</Text>
+              <Text style={{ color: wireframeColors.muted, fontSize: 12, marginTop: 8 }}>
+                {selectedTopic.studentName} • {selectedTopic.department}
               </Text>
+              <Text style={{ color: wireframeColors.text, fontSize: 14, lineHeight: 22, marginTop: 14 }}>{selectedTopic.abstract}</Text>
               <TextInput
-                placeholder="Add your comments or feedback..."
                 value={reviewComment}
                 onChangeText={setReviewComment}
+                placeholder="Add faculty notes..."
+                placeholderTextColor={wireframeColors.placeholder}
                 multiline
-                minHeight={80}
-                className="border border-gray-300 rounded-lg p-4 focus:border-primary-500 focus:ring-2 focus:ring-primary-200 text-base"
-              />
-            </View>
-
-            <View className="flex justify-end space-x-3 mt-4">
-              <TouchableOpacity
-                onPress={() => {
-                  setSelectedTopic(null);
-                  setReviewComment('');
+                textAlignVertical="top"
+                style={{
+                  minHeight: 120,
+                  borderRadius: 18,
+                  borderWidth: 1,
+                  borderColor: wireframeColors.line,
+                  backgroundColor: wireframeColors.inputBg,
+                  padding: 14,
+                  color: wireframeColors.text,
+                  marginTop: 16,
                 }}
-                className="px-4 py-2 rounded-md border border-gray-300 text-sm"
-              >
-                Cancel
-              </TouchableOpacity>
-
-              <View className="flex flex-row space-x-2">
-                <TouchableOpacity
-                  onPress={handleReject}
-                  disabled={loading}
-                  className={`px-4 py-2 rounded-md ${loading
-                    ? 'bg-gray-300 text-gray-500'
-                    : 'bg-red-50 text-white'
-                  }`}
-                >
-                  {loading ? (
-                    <>
-                      <Feather name="loader" size={16} color="white" className="mr-2" />
-                      <Text>Rejecting...</Text>
-                    </>
-                  ) : (
-                    <Text>Reject</Text>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  onPress={handleApprove}
-                  disabled={loading}
-                  className={`px-4 py-2 rounded-md ${loading
-                    ? 'bg-gray-300 text-gray-500'
-                    : 'bg-primary-600 text-white'
-                  }`}
-                >
-                  {loading ? (
-                    <>
-                      <Feather name="loader" size={16} color="white" className="mr-2" />
-                      <Text>Approving...</Text>
-                    </>
-                  ) : (
-                    <Text>Approve</Text>
-                  )}
-                </TouchableOpacity>
+              />
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
+                {([
+                  ['Approve', 'approved'],
+                  ['Revision', 'needs_revision'],
+                  ['Reject', 'rejected'],
+                ] as Array<[string, TopicStatus]>).map(([label, value]) => (
+                  <TouchableOpacity
+                    key={value}
+                    onPress={() => updateStatus(selectedTopic, value)}
+                    activeOpacity={0.85}
+                    style={{
+                      flex: 1,
+                      minHeight: 48,
+                      borderRadius: 16,
+                      backgroundColor:
+                        value === 'rejected'
+                          ? wireframeColors.dangerSoft
+                          : value === 'approved'
+                            ? wireframeColors.accentSoft
+                            : wireframeColors.inputBg,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Text style={{ color: wireframeColors.text, fontWeight: '700' }}>{label}</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
+              <TouchableOpacity onPress={() => setSelectedTopic(null)} activeOpacity={0.85} style={{ marginTop: 12, alignItems: 'center' }}>
+                <Text style={{ color: wireframeColors.muted, fontWeight: '700' }}>Close</Text>
+              </TouchableOpacity>
             </View>
-          </View>
+          ) : null}
         </View>
-      )}
-    </View>
+      </Modal>
+    </AppLayout>
   );
 };
 

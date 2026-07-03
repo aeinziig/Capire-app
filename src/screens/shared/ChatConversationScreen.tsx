@@ -1,6 +1,17 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, TextInput, FlatList } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useApp } from '@/context/AppContext';
+import type { RootParamList } from '@/navigation/types';
+import { supabase } from '@/services/supabase';
+import {
+  AppLayout,
+  HeaderIconButton,
+  WireframeCard,
+  useWireframeTheme,
+} from '@/components/wireframe/Wireframe';
 
 type Message = {
   id: string;
@@ -9,167 +20,191 @@ type Message = {
   timestamp: string;
 };
 
-type Conversation = {
+type ChatMessageRow = {
   id: string;
-  name: string;
-  avatar?: string;
+  sender_id: string;
+  receiver_id: string;
+  message: string;
+  is_read: boolean | null;
+  created_at: string | null;
 };
 
-const ChatConversationScreen: React.FC<{ conversation: Conversation }> = ({ conversation }) => {
+const ChatConversationScreen: React.FC = () => {
+  const colors = useWireframeTheme();
+  const navigation = useNavigation<NativeStackNavigationProp<RootParamList>>();
+  const route = useRoute();
+  const { user } = useApp();
+  const { partnerId, partnerName } = route.params as RootParamList['ChatConversation'];
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock initial messages
-  React.useEffect(() => {
-    setMessages([
-      {
-        id: '1',
-        text: 'Hi! How can I help you with your capstone project?',
-        isUser: false,
-        timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString() // 5 minutes ago
-      },
-      {
-        id: '2',
-        text: 'Hey! I was wondering if you could help me brainstorm topics for my computer science capstone.',
-        isUser: true,
-        timestamp: new Date(Date.now() - 1000 * 60 * 4).toISOString() // 4 minutes ago
+  const fetchMessages = useCallback(async () => {
+    if (!user) {
+      setMessages([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { data, error: messageError } = await supabase
+        .from('chat_messages')
+        .select('id, sender_id, receiver_id, message, is_read, created_at')
+        .or(`and(sender_id.eq.${user.id},receiver_id.eq.${partnerId}),and(sender_id.eq.${partnerId},receiver_id.eq.${user.id})`)
+        .order('created_at', { ascending: true });
+
+      if (messageError) {
+        throw messageError;
       }
-    ]);
-  }, [conversation]);
 
-  const sendMessage = () => {
-    if (!input.trim()) return;
+      const rows = (data ?? []) as ChatMessageRow[];
+      setMessages(rows.map((message) => ({
+        id: message.id,
+        text: message.message,
+        isUser: message.sender_id === user.id,
+        timestamp: message.created_at || new Date().toISOString(),
+      })));
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      text: input,
-      isUser: true,
-      timestamp: new Date().toISOString()
+      const unreadIds = rows
+        .filter((message) => message.receiver_id === user.id && !message.is_read)
+        .map((message) => message.id);
+
+      if (unreadIds.length > 0) {
+        await supabase.from('chat_messages').update({ is_read: true }).in('id', unreadIds);
+      }
+    } catch (err) {
+      setMessages([]);
+      setError(err instanceof Error ? err.message : 'Failed to load conversation.');
+    } finally {
+      setLoading(false);
+    }
+  }, [partnerId, user]);
+
+  useEffect(() => {
+    void fetchMessages();
+
+    if (!user) {
+      return;
+    }
+
+    const channel = supabase
+      .channel(`chat-${user.id}-${partnerId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, (payload) => {
+        const message = payload.new as ChatMessageRow;
+        const isConversationMessage =
+          (message.sender_id === user.id && message.receiver_id === partnerId) ||
+          (message.sender_id === partnerId && message.receiver_id === user.id);
+
+        if (!isConversationMessage) {
+          return;
+        }
+
+        setMessages((current) => (
+          current.some((item) => item.id === message.id)
+            ? current
+            : [
+                ...current,
+                {
+                  id: message.id,
+                  text: message.message,
+                  isUser: message.sender_id === user.id,
+                  timestamp: message.created_at || new Date().toISOString(),
+                },
+              ]
+        ));
+
+        if (message.receiver_id === user.id && !message.is_read) {
+          void supabase.from('chat_messages').update({ is_read: true }).eq('id', message.id);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
     };
+  }, [fetchMessages, partnerId, user]);
 
-    setMessages(prev => [...prev, userMessage]);
+  const sendMessage = useCallback(async () => {
+    if (!input.trim() || !user) {
+      return;
+    }
+
+    const text = input.trim();
     setInput('');
+    setError(null);
 
-    // Simulate bot response
-    setTimeout(() => {
-      const botResponse: Message = {
-        id: Date.now().toString() + 'b',
-        text: generateBotResponse(input),
-        isUser: false,
-        timestamp: new Date().toISOString()
-      };
-      setMessages(prev => [...prev, botResponse]);
-    }, 1000);
-  };
+    const { error: insertError } = await supabase.from('chat_messages').insert({
+      sender_id: user.id,
+      receiver_id: partnerId,
+      message: text,
+      is_read: false,
+    });
 
-  const generateBotResponse = (userInput: string): string => {
-    const lowerInput = userInput.toLowerCase();
-
-    if (lowerInput.includes('topic') || lowerInput.includes('idea')) {
-      return "Some potential CS capstone topics: 1) AI-powered app for mental health support, 2) Blockchain-based supply chain tracker, 3) AR/VR educational tool, 4) IoT smart home energy optimizer, 5) Machine learning model for predicting stock trends. What interests you most?";
+    if (insertError) {
+      setInput(text);
+      setError(insertError.message);
     }
-
-    if (lowerInput.includes('help') || lowerInput.includes('assist')) {
-      return "I can help with topic research, literature review, methodology suggestions, or even code reviews for your project. What do you need assistance with right now?";
-    }
-
-    return "That's interesting! Tell me more about your project goals and what you're hoping to achieve.";
-  };
-
-  const renderMessage = ({ item }: { item: Message }) => (
-    <View className={`mb-4 ${
-      item.isUser ? 'ml-auto' : 'mr-auto'
-    } max-w-[80%]`}>
-      <View className={`${item.isUser
-        ? 'bg-primary-600 text-white'
-        : 'bg-gray-100 text-gray-800'
-      } rounded-lg p-3 max-w-[80%] ${item.isUser
-        ? 'rounded-br-none'
-        : 'rounded-bl-none'
-      }`}>
-        <Text className="text-sm">{item.text}</Text>
-        <Text className="text-xs text-opacity-70 mt-1">
-          {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-        </Text>
-      </View>
-    </View>
-  );
+  }, [input, partnerId, user]);
 
   return (
-    <View className="flex-1 bg-white">
-      <View className="flex items-center justify-between border-b border-gray-200 p-4">
-        <TouchableOpacity
-          onPress={() => {
-            // Go back - in real app would use navigation.goBack()
-          }}
-          className="p-2"
-        >
-          <Feather name="chevron-left" size={24} className="text-gray-500" />
-        </TouchableOpacity>
-
-        <View className="flex items-center space-x-3">
-          {conversation.avatar && (
-            <View className="w-10 h-10">
-              {/* In real app, would use Image component */}
-              <View className="w-full h-full bg-gray-300 rounded-full flex items-center justify-center">
-                <Text className="text-xs font-medium text-gray-600">
-                  {conversation.name.charAt(0)}
+    <AppLayout
+      title={partnerName}
+      subtitle="Research chat"
+      headerLeft={<HeaderIconButton icon="chevron-left" onPress={() => navigation.goBack()} />}
+      headerRight={<HeaderIconButton icon="more-vertical" />}
+    >
+      {loading ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={colors.accent} />
+          <Text style={{ marginTop: 12, color: colors.muted }}>Loading conversation...</Text>
+        </View>
+      ) : (
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {messages.map((item) => (
+            <View key={item.id} style={{ alignSelf: item.isUser ? 'flex-end' : 'flex-start', maxWidth: '82%', marginBottom: 12 }}>
+              <View
+                style={{
+                  borderRadius: 20,
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  backgroundColor: item.isUser ? colors.accent : colors.surface,
+                  borderWidth: item.isUser ? 0 : 1,
+                  borderColor: colors.line,
+                }}
+              >
+                <Text style={{ color: item.isUser ? '#FFFFFF' : colors.text, fontSize: 14, lineHeight: 20 }}>{item.text}</Text>
+                <Text style={{ color: item.isUser ? '#D8F3DC' : colors.muted, fontSize: 11, marginTop: 6 }}>
+                  {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </Text>
               </View>
             </View>
-          )}
-          <Text className="font-medium text-gray-800">
-            {conversation.name}
-          </Text>
-        </View>
+          ))}
+          {error ? (
+            <Text style={{ color: colors.danger, fontSize: 12, marginTop: 8 }}>{error}</Text>
+          ) : null}
+        </ScrollView>
+      )}
 
-        <View className="p-2">
-          <Feather name="more-vertical" size={24} className="text-gray-500" />
-        </View>
-      </View>
-
-      <ScrollView
-        className="flex-1 p-4"
-        contentContainerClassName="pb-12"
-        showsVerticalScrollIndicator={false}
-      >
-        {messages.map((message, index) => (
-          <View key={index}>
-            {renderMessage(message)}
-          }
-        ))}
-      </ScrollView>
-
-      <View className="border-t border-gray-200 p-4 bg-white">
-        <View className="flex items-center space-x-3">
+      <WireframeCard style={{ marginTop: 12 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <TextInput
             placeholder="Type a message..."
+            placeholderTextColor="#95A79D"
             value={input}
             onChangeText={setInput}
             onSubmitEditing={sendMessage}
-            className="flex-1 border border-gray-300 rounded-lg p-4 focus:border-primary-500 focus:ring-2 focus:ring-primary-200 text-base"
+            style={{ flex: 1, color: colors.text, fontSize: 14 }}
           />
-
-          <TouchableOpacity
-            onPress={sendMessage}
-            disabled={!input.trim()}
-            className={`p-3 rounded-lg ${!input.trim()
-              ? 'bg-gray-300'
-              : 'bg-primary-600'
-            }`}
-          >
-            <Feather
-              name="send"
-              size={20}
-              className={`${!input.trim()
-                ? 'text-gray-400'
-                : 'text-white'
-              }`}
-            />
+          <TouchableOpacity onPress={() => void sendMessage()} disabled={!input.trim()} activeOpacity={0.85}>
+            <Feather name="send" size={18} color={!input.trim() ? colors.muted : colors.accent} />
           </TouchableOpacity>
         </View>
-      </View>
-    </View>
+      </WireframeCard>
+    </AppLayout>
   );
 };
 
