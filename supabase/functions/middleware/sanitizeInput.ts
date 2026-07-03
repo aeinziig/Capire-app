@@ -1,6 +1,3 @@
-// @ts-ignore
-import { serve } from 'https://deno.land/std@0.168.0/http.server.ts'
-
 /**
  * Sanitize input to prevent XSS attacks when outputting to HTML
  * @param input The string to sanitize

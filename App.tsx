@@ -14,7 +14,10 @@ import OTPVerificationScreen from '@/screens/authentication/OTPVerificationScree
 import MainTabs from '@/screens/MainTabs';
 import CapstoneDetailScreen from '@/screens/student/CapstoneDetailScreen';
 import ChatConversationScreen from '@/screens/shared/ChatConversationScreen';
+import NotificationsScreen from '@/screens/shared/NotificationsScreen';
+import OtherUserProfileScreen from '@/screens/shared/OtherUserProfileScreen';
 import SettingsScreen from '@/screens/shared/SettingsScreen';
+import LegalDocumentScreen from '@/screens/shared/LegalDocumentScreen';
 import { AppProvider, useApp } from '@/context/AppContext';
 import { log } from '@/utils/logger';
 
@@ -113,7 +116,10 @@ function AppShell() {
           )}
           <Stack.Screen name="CapstoneDetail" component={CapstoneDetailScreen} />
           <Stack.Screen name="ChatConversation" component={ChatConversationScreen} />
+          <Stack.Screen name="Notifications" component={NotificationsScreen} />
+          <Stack.Screen name="OtherUserProfile" component={OtherUserProfileScreen} />
           <Stack.Screen name="Settings" component={SettingsScreen} />
+          <Stack.Screen name="LegalDocument" component={LegalDocumentScreen} />
         </Stack.Navigator>
       </NavigationContainer>
   );
