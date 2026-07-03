@@ -17,20 +17,20 @@ import { useApp } from '@/context/AppContext';
 const px = (token: string) => Number.parseInt(token, 10);
 
 const lightWireframeColors = {
-  page: '#F4F8F4',
+  page: '#F8F9FA',
   surface: colorTokens.neutralWhite,
   header: colorTokens.primaryDark,
   headerAlt: '#24503C',
   accent: colorTokens.primarySage,
   accentSoft: '#E8F3EA',
-  line: '#DCE7DE',
-  text: '#183126',
-  muted: '#667A70',
-  placeholder: '#95A79D',
+  line: '#E9ECEF',
+  text: '#212529',
+  muted: '#6C757D',
+  placeholder: '#6C757D',
   warning: colorTokens.secondaryAmber,
   danger: colorTokens.statusDanger,
   dangerSoft: '#FFF3EF',
-  inputBg: '#FAFCFA',
+  inputBg: '#F8F9FA',
 };
 
 const darkWireframeColors = {
@@ -76,8 +76,8 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({ title, subtitle, childre
           paddingHorizontal: px(spacingTokens['6']),
           paddingTop: px(spacingTokens['9']),
           paddingBottom: px(spacingTokens['12']),
-          borderBottomLeftRadius: 36,
-          borderBottomRightRadius: 36,
+          borderBottomLeftRadius: 40,
+          borderBottomRightRadius: 40,
         }}
       >
         <View
@@ -103,24 +103,23 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({ title, subtitle, childre
       <View
         style={{
           flex: 1,
-          marginTop: -px(spacingTokens['10']),
           paddingHorizontal: px(spacingTokens['5']),
           paddingBottom: px(spacingTokens['5']),
         }}
       >
-        <View
-          style={{
-            flex: 1,
-            backgroundColor: colors.surface,
-            borderRadius: 28,
-            padding: px(spacingTokens['5']),
-            ...shadowTokens['2xl'],
+        <ScrollView
+          contentContainerStyle={{
+            flexGrow: 1,
+            paddingTop: px(spacingTokens['5']),
+            paddingBottom: px(spacingTokens['4']),
           }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={{ color: colors.text, fontSize: 26, fontWeight: '800', marginBottom: 8 }}>{title}</Text>
+          <Text style={{ color: colors.text, fontSize: 24, fontWeight: '800', marginBottom: 8, textAlign: 'center' }}>{title}</Text>
           {children}
           {footer ? <View style={{ marginTop: 24 }}>{footer}</View> : null}
-        </View>
+        </ScrollView>
       </View>
     </View>
   );
@@ -183,9 +182,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           backgroundColor: colors.header,
           paddingHorizontal: px(spacingTokens['5']),
           paddingTop: px(spacingTokens['6']),
-          paddingBottom: px(spacingTokens['8']),
-          borderBottomLeftRadius: px(borderRadiusTokens['3xl']),
-          borderBottomRightRadius: px(borderRadiusTokens['3xl']),
+          paddingBottom: px(spacingTokens['7']),
         }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -197,7 +194,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           <View style={{ minWidth: 44, alignItems: 'flex-end' }}>{headerRight}</View>
         </View>
       </View>
-      <View style={{ flex: 1, marginTop: -px(spacingTokens['4']) }}>{body}</View>
+      <View style={{ flex: 1 }}>{body}</View>
     </View>
   );
 };
@@ -217,7 +214,7 @@ export const WireframeInput: React.FC<WireframeInputProps> = ({ label, icon, err
       <View
         style={{
           minHeight: 54,
-          borderRadius: 18,
+          borderRadius: 10,
           borderWidth: 1,
           borderColor: error ? colors.danger : colors.line,
           backgroundColor: colors.inputBg,
@@ -264,7 +261,7 @@ export const WireframeButton: React.FC<ButtonProps> = ({ label, onPress, variant
       activeOpacity={0.85}
       style={{
         minHeight: 56,
-        borderRadius: 20,
+        borderRadius: 12,
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: variant === 'primary' ? colors.accent : colors.inputBg,
@@ -304,11 +301,15 @@ export const WireframeCard: React.FC<{ children: React.ReactNode; style?: StyleP
       style={[
         {
           backgroundColor: colors.surface,
-          borderRadius: 24,
+          borderRadius: 16,
           borderWidth: 1,
           borderColor: colors.line,
           padding: px(spacingTokens['4']),
-          ...shadowTokens.base,
+          shadowColor: '#000000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.06,
+          shadowRadius: 12,
+          elevation: 2,
         },
         style,
       ]}
@@ -334,10 +335,10 @@ export const WireframePill: React.FC<{
         {
           borderRadius: 999,
           paddingHorizontal: 14,
-          paddingVertical: 10,
+          paddingVertical: 8,
           borderWidth: 1,
           borderColor: active ? colors.accent : colors.line,
-          backgroundColor: active ? colors.accent : colors.surface,
+          backgroundColor: active ? colors.accent : colors.inputBg,
         },
         style,
       ]}
@@ -360,7 +361,7 @@ export const HeaderIconButton: React.FC<{
       style={{
         width: 44,
         height: 44,
-        borderRadius: 14,
+        borderRadius: 22,
         backgroundColor: colors.headerAlt,
         alignItems: 'center',
         justifyContent: 'center',

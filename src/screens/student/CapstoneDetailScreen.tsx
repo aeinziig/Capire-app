@@ -227,7 +227,7 @@ const CapstoneDetailScreen: React.FC = () => {
       </WireframeCard>
 
       <WireframeCard>
-        <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
           <TouchableOpacity
             onPress={handleBookmarkToggle}
             disabled={bookmarkLoading}
@@ -242,31 +242,13 @@ const CapstoneDetailScreen: React.FC = () => {
               alignItems: 'center',
               justifyContent: 'center',
               flexDirection: 'row',
+              gap: 10,
             }}
           >
             <Feather name="bookmark" size={18} color={wireframeColors.accent} />
-            <Text style={{ color: wireframeColors.text, fontWeight: '700', marginLeft: 10 }}>
+            <Text style={{ color: wireframeColors.text, fontWeight: '700' }}>
               {bookmarkLoading ? 'Saving...' : isBookmarked ? 'Saved' : 'Save'}
             </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => setShowCitationModal(true)}
-            activeOpacity={0.85}
-            style={{
-              flex: 1,
-              minHeight: 52,
-              borderRadius: 18,
-              backgroundColor: wireframeColors.inputBg,
-              borderWidth: 1,
-              borderColor: wireframeColors.line,
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexDirection: 'row',
-            }}
-          >
-            <Feather name="file-text" size={18} color={wireframeColors.accent} />
-            <Text style={{ color: wireframeColors.text, fontWeight: '700', marginLeft: 10 }}>Generate Citation</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -280,12 +262,33 @@ const CapstoneDetailScreen: React.FC = () => {
               alignItems: 'center',
               justifyContent: 'center',
               flexDirection: 'row',
+              gap: 10,
             }}
           >
             <Feather name="file-text" size={18} color="#FFFFFF" />
-            <Text style={{ color: '#FFFFFF', fontWeight: '700', marginLeft: 10 }}>Open PDF</Text>
+            <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>Open PDF</Text>
           </TouchableOpacity>
         </View>
+
+        <TouchableOpacity
+          onPress={() => setShowCitationModal(true)}
+          activeOpacity={0.85}
+          style={{
+            minHeight: 52,
+            borderRadius: 18,
+            backgroundColor: wireframeColors.inputBg,
+            borderWidth: 1,
+            borderColor: wireframeColors.line,
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexDirection: 'row',
+            gap: 10,
+            paddingHorizontal: 16,
+          }}
+        >
+          <Feather name="file-text" size={18} color={wireframeColors.accent} />
+          <Text style={{ color: wireframeColors.text, fontWeight: '700', textAlign: 'center' }}>Generate Citation</Text>
+        </TouchableOpacity>
       </WireframeCard>
 
       <Modal visible={showPdfModal} transparent animationType="slide" onRequestClose={() => setShowPdfModal(false)}>

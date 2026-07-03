@@ -9,6 +9,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootParamList } from '@/navigation/types';
 import { supabase } from '@/services/supabase';
 import { mapAuthError } from '@/utils/supabase/supabaseErrorHandler';
+import { validateSpcbaEmail } from '@/utils/authValidation';
 import {
   AuthLayout,
   WireframeButton,
@@ -65,18 +66,13 @@ const LoginScreen: React.FC = () => {
     if (sessionEmail) await rememberEmail(sessionEmail);
   };
 
-  const validateEmail = (value: string) => {
-    if (!value.trim()) return 'Email is required';
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? null : 'Enter a valid email address';
-  };
-
   const validatePassword = (value: string) => {
     if (!value) return 'Password is required';
     return value.length >= 6 ? null : 'Password must be at least 6 characters';
   };
 
   const handleLogin = async () => {
-    const nextEmailError = validateEmail(email);
+    const nextEmailError = validateSpcbaEmail(email);
     const nextPasswordError = validatePassword(password);
     setEmailError(nextEmailError);
     setPasswordError(nextPasswordError);
@@ -158,7 +154,7 @@ const LoginScreen: React.FC = () => {
         onChangeText={(value) => {
           setEmail(value);
           if (formError) setFormError(null);
-          if (emailError) setEmailError(validateEmail(value));
+          if (emailError) setEmailError(validateSpcbaEmail(value));
         }}
         autoCapitalize="none"
         keyboardType="email-address"
@@ -166,7 +162,7 @@ const LoginScreen: React.FC = () => {
         autoComplete="email"
         textContentType="username"
         importantForAutofill="yes"
-        placeholder="name@school.edu"
+        placeholder="12345678@spcba.edu.ph"
         error={emailError}
       />
 
