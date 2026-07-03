@@ -1,6 +1,12 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, FlatList } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import {
+  AppLayout,
+  HeaderIconButton,
+  WireframeCard,
+  useWireframeTheme,
+} from '@/components/wireframe/Wireframe';
 
 type Message = {
   id: string;
@@ -10,157 +16,150 @@ type Message = {
 };
 
 const ChatbotScreen: React.FC = () => {
+  const wireframeColors = useWireframeTheme();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Mock initial message
-  React.useEffect(() => {
+  useEffect(() => {
     setMessages([
       {
         id: '1',
-        text: 'Hello! I am the CAPIRE research assistant. How can I help you with your capstone project today?',
+        text: 'Hello. I am the CAPIRE research assistant. Ask me for topic ideas, keyword suggestions, or citation help.',
         isUser: false,
-        timestamp: new Date().toISOString()
-      }
+        timestamp: new Date().toISOString(),
+      },
     ]);
   }, []);
 
-  const sendMessage = async () => {
-    if (!input.trim()) return;
+  const generateBotResponse = (userInput: string): string => {
+    const lowerInput = userInput.toLowerCase();
+    if (lowerInput.includes('capstone') || lowerInput.includes('project')) {
+      return 'Start with the problem, target users, and technology stack. I can help narrow that into a workable scope.';
+    }
+    if (lowerInput.includes('originality') || lowerInput.includes('plagiarism')) {
+      return 'Use the originality checker after you define the title and abstract. I can help rewrite overlapping phrasing too.';
+    }
+    if (lowerInput.includes('cit') || lowerInput.includes('reference') || lowerInput.includes('bibliography')) {
+      return 'Send the author, year, title, and source type and I can help format the reference.';
+    }
+    return 'Share your topic area, users, and desired output, and I will help shape a better capstone direction.';
+  };
+
+  const sendMessage = () => {
+    const trimmedInput = input.trim();
+    if (!trimmedInput || loading) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
-      text: input,
+      text: trimmedInput,
       isUser: true,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    setMessages((current) => [...current, userMessage]);
     setInput('');
     setLoading(true);
 
-    try {
-      // Simulate API call to Gemini Flash
-      // In real app, this would call your backend which then calls Gemini API
-      setTimeout(() => {
-        const botResponse: Message = {
-          id: Date.now().toString() + 'b',
-          text: generateBotResponse(input),
+    setTimeout(() => {
+      setMessages((current) => [
+        ...current,
+        {
+          id: `${Date.now()}b`,
+          text: generateBotResponse(trimmedInput),
           isUser: false,
-          timestamp: new Date().toISOString()
-        };
-        setMessages(prev => [...prev, botResponse]);
-        setLoading(false);
-      }, 1500);
-    } catch (error) {
+          timestamp: new Date().toISOString(),
+        },
+      ]);
       setLoading(false);
-      console.error('Error sending message:', error);
-    }
+    }, 700);
   };
-
-  const generateBotResponse = (userInput: string): string => {
-    const lowerInput = userInput.toLowerCase();
-
-    if (lowerInput.includes('capstone') || lowerInput.includes('project')) {
-      return "I can help you brainstorm capstone project ideas, find relevant literature, or check the originality of your work. What specific aspect would you like assistance with?";
-    }
-
-    if (lowerInput.includes('originality') || lowerInput.includes('plagiarism')) {
-      return "For originality checking, you can use the Originality Checker tool in the student section. Upload your document or paste your text, and I'll analyze it for similarity against academic databases.";
-    }
-
-    if (lowerInput.includes('cit') || lowerInput.includes('reference') || lowerInput.includes('bibliography')) {
-      return "I can help you generate citations in various formats (APA, MLA, Chicago, etc.). Just provide the source details like title, author, publication year, and I'll format it correctly.";
-    }
-
-    if (lowerInput.includes('hello') || lowerInput.includes('hi') || lowerInput.includes('hey')) {
-      return "Hello! I'm here to assist with your academic research and capstone project needs. What would you like to work on today?";
-    }
-
-    return "That's an interesting question! While I'm still learning, I can help with research guidance, topic brainstorming, and general academic advice. Could you rephrase or provide more details about what you're looking for?";
-  };
-
-  const renderMessage = ({ item }: { item: Message }) => (
-    <View className={`mb-4 ${
-      item.isUser ? 'ml-auto' : 'mr-auto'
-    } max-w-[80%]`}>
-      <View className={`${item.isUser
-        ? 'bg-primary-600 text-white'
-        : 'bg-gray-100 text-gray-800'
-      } rounded-lg p-3 max-w-[80%] ${item.isUser
-        ? 'rounded-br-none'
-        : 'rounded-bl-none'
-      }`}>
-        <Text className="text-sm">{item.text}</Text>
-        <Text className="text-xs text-opacity-70 mt-1">
-          {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-        </Text>
-      </View>
-    </View>
-  );
 
   return (
-    <View className="flex-1 bg-white">
-      <View className="flex items-center justify-between border-b border-gray-200 p-4">
-        <Text className="text-xl font-bold text-gray-800">
-          CAPIRE Assistant
+    <AppLayout
+      title="CAPIRE Assistant"
+      subtitle="Wireframe-style research guidance, brainstorming, and writing support."
+      headerRight={<HeaderIconButton icon="settings" />}
+    >
+      <WireframeCard style={{ marginBottom: 16 }}>
+        <Text style={{ color: wireframeColors.text, fontSize: 16, fontWeight: '800', marginBottom: 10 }}>
+          Suggested prompts
         </Text>
-        <TouchableOpacity className="p-2">
-          <Feather name="settings" size={24} className="text-gray-500" />
-        </TouchableOpacity>
-      </View>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {['Give me topic ideas', 'Refine my abstract', 'Suggest keywords'].map((item) => (
+            <TouchableOpacity
+              key={item}
+              onPress={() => setInput(item)}
+              activeOpacity={0.85}
+              style={{
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: wireframeColors.line,
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+              }}
+            >
+              <Text style={{ color: wireframeColors.text, fontSize: 12, fontWeight: '700' }}>{item}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </WireframeCard>
 
-      <ScrollView
-        className="flex-1 p-4"
-        contentContainerClassName="pb-12"
-        showsVerticalScrollIndicator={false}
-      >
-        {messages.map((message, index) => (
-          <View key={index}>
-            {renderMessage(message)}
+      {messages.map((message) => (
+        <View
+          key={message.id}
+          style={{
+            alignSelf: message.isUser ? 'flex-end' : 'flex-start',
+            maxWidth: '86%',
+            marginBottom: 10,
+          }}
+        >
+          <View
+            style={{
+              borderRadius: 22,
+              paddingHorizontal: 16,
+              paddingVertical: 14,
+              backgroundColor: message.isUser ? wireframeColors.accent : wireframeColors.surface,
+              borderWidth: message.isUser ? 0 : 1,
+              borderColor: wireframeColors.line,
+            }}
+          >
+            <Text style={{ color: message.isUser ? '#FFFFFF' : wireframeColors.text, fontSize: 14, lineHeight: 20 }}>
+              {message.text}
+            </Text>
           </View>
-        ))}
+        </View>
+      ))}
 
-        {loading && (
-          <View className="flex items-center justify-center py-4">
-            <Text className="text-gray-500">Typing...</Text>
-          </View>
-        )}
-      </ScrollView>
+      {loading ? <Text style={{ color: wireframeColors.muted, fontSize: 12, marginBottom: 10 }}>Assistant is typing...</Text> : null}
 
-      <View className="border-t border-gray-200 p-4 bg-white">
-        <View className="flex items-center space-x-3">
+      <WireframeCard style={{ marginTop: 6 }}>
+        <View
+          style={{
+            minHeight: 56,
+            borderRadius: 18,
+            backgroundColor: '#FAFCFA',
+            borderWidth: 1,
+            borderColor: wireframeColors.line,
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingHorizontal: 16,
+          }}
+        >
           <TextInput
-            placeholder="Ask me about your capstone project..."
             value={input}
             onChangeText={setInput}
+            placeholder="Ask about your capstone project..."
+            placeholderTextColor="#95A79D"
+            style={{ flex: 1, color: wireframeColors.text, fontSize: 14 }}
             onSubmitEditing={sendMessage}
-            className={`flex-1 border border-gray-300 rounded-lg p-4 focus:border-primary-500 focus:ring-2 focus:ring-primary-200 text-base ${
-              loading ? 'opacity-50' : ''
-            }`}
           />
-
-          <TouchableOpacity
-            onPress={sendMessage}
-            disabled={loading || !input.trim()}
-            className={`p-3 rounded-lg ${loading || !input.trim()
-              ? 'bg-gray-300'
-              : 'bg-primary-600'
-            }`}
-          >
-            <Feather
-              name={loading ? 'loader' : 'send'}
-              size={20}
-              className={`${loading || !input.trim()
-                ? 'text-gray-400'
-                : 'text-white'
-              }`}
-            />
+          <TouchableOpacity onPress={sendMessage} disabled={!input.trim() || loading} activeOpacity={0.85}>
+            <Feather name="send" size={18} color={!input.trim() || loading ? '#9EAEA6' : wireframeColors.accent} />
           </TouchableOpacity>
         </View>
-      </View>
-    </View>
+      </WireframeCard>
+    </AppLayout>
   );
 };
 

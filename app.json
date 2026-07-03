@@ -1,36 +1,43 @@
 {
-  "name": "capire",
-  "slug": "capire",
-  "version": "1.0.0",
-  "orientation": "portrait",
-  "icon": "./assets/icon.png",
-  "userInterfaceStyle": "automatic",
-  "splash": {
-    "image": "./assets/splash.png",
-    "resizeMode": "contain",
-    "backgroundColor": "#ffffff"
-  },
-  "updates": {
-    "fallbackToCacheTimeout": 0
-  },
-  "assetBundlePatterns": [
-    "**/*"
-  ],
-  "ios": {
-    "supportsTablet": true
-  },
-  "android": {
-    "adaptiveIcon": {
-      "foregroundImage": "./assets/adaptive-icon.png",
-      "backgroundColor": "#FFFFFF"
-    }
-  },
-  "web": {
-    "favicon": "./assets/favicon.png"
-  },
-  "extra": {
-    "eas": {
-      "projectId": "your-project-id"
-    }
+  "expo": {
+    "name": "capire",
+    "slug": "capire",
+    "scheme": "capire",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0E4A35"
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0E4A35"
+      },
+      "package": "com.logicaltea.capire"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "your-project-id"
+      }
+    },
+    "plugins": [
+      "expo-web-browser"
+    ]
   }
 }

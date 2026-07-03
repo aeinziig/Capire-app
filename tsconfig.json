@@ -1,4 +1,22 @@
 {
-  "compilerOptions": {},
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "nativewind",
+    "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    "types": ["nativewind", "node"],
+    "resolveJsonModule": true
+  },
+  "exclude": [
+    "node_modules",
+    "babel.config.js",
+    "metro.config.js",
+    "jest.config.js",
+    "supabase",
+    "supabase/**"
+  ],
   "extends": "expo/tsconfig.base"
 }

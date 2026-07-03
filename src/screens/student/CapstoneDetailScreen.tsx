@@ -1,267 +1,337 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, Image, ActivityIndicator, Modal } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Modal, Text, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { supabase } from '../../services/supabase';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import CitationBottomSheet from '@/screens/shared/CitationBottomSheet';
+import { supabase } from '@/services/supabase';
+import { useApp } from '@/context/AppContext';
+import type { RootParamList } from '@/navigation/types';
+import {
+  AppLayout,
+  HeaderIconButton,
+  WireframeCard,
+  WireframePill,
+  useWireframeTheme,
+} from '@/components/wireframe/Wireframe';
 
 type CapstoneItem = {
-  id: number;
+  id: string;
   title: string;
   author: string;
   department: string;
   year: string;
   abstract: string;
-  originalityScore: number;
+  originalityScore: number | null;
   keywords: string[];
-  pdfUrl?: string;
-  imageUrl?: string;
+  pdfUrl?: string | null;
 };
 
-const CapstoneDetailScreen: React.FC<{ capstoneId: number }> = ({ capstoneId }) => {
+const CapstoneDetailScreen: React.FC = () => {
+  const route = useRoute();
+  const navigation = useNavigation<NativeStackNavigationProp<RootParamList>>();
+  const wireframeColors = useWireframeTheme();
+  const { user } = useApp();
+  const { capstoneId } = route.params as { capstoneId: string };
+
   const [capstone, setCapstone] = useState<CapstoneItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showPdfModal, setShowPdfModal] = useState(false);
+  const [showCitationModal, setShowCitationModal] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
+  const [bookmarkLoading, setBookmarkLoading] = useState(false);
 
-  // Mock data - in real app this would come from Supabase
-  const mockCapstones: CapstoneItem[] = [
-    {
-      id: 1,
-      title: 'AI Applications in Early Cancer Detection',
-      author: 'Alex Johnson',
-      department: 'Computer Science',
-      year: '2023',
-      abstract: 'This research explores the use of machine learning algorithms for detecting early signs of cancer from medical imaging data. We propose a novel CNN architecture that achieves 94.2% accuracy on the test dataset.',
-      originalityScore: 88,
-      keywords: ['machine learning', 'cancer detection', 'medical imaging', 'deep learning'],
-      pdfUrl: 'https://example.com/papers/ai-cancer-detection.pdf',
-      imageUrl: 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1f?w=400'
-    },
-    {
-      id: 2,
-      title: 'Sustainable Urban Planning for Growing Cities',
-      author: 'Maria Garcia',
-      department: 'Urban Planning',
-      year: '2023',
-      abstract: 'Analyzing strategies for sustainable urban development in rapidly growing metropolitan areas. Focuses on green infrastructure, public transportation optimization, and mixed-use zoning.',
-      originalityScore: 92,
-      keywords: ['urban planning', 'sustainability', 'green infrastructure', 'transportation'],
-      pdfUrl: 'https://example.com/papers/sustainable-urban-planning.pdf',
-      imageUrl: 'https://images.unsplash.com/photo-1486401899868-a9c40aa2538e?w=400'
-    },
-    {
-      id: 3,
-      title: 'Blockchain Technology for Secure Voting Systems',
-      author: 'David Kim',
-      department: 'Political Science',
-      year: '2022',
-      abstract: 'Examining the feasibility of using blockchain technology to create secure and transparent voting systems. Proposes a hybrid consensus mechanism suitable for national elections.',
-      originalityScore: 76,
-      keywords: ['blockchain', 'voting', 'security', 'cryptography'],
-      pdfUrl: 'https://example.com/papers/blockchain-voting.pdf',
-      imageUrl: 'https://images.unsplash.com/photo-1550751826-4bb2a3c335ea?w=400'
-    }
-  ];
+  useEffect(() => {
+    const fetchCapstone = async () => {
+      setLoading(true);
+      setError(null);
 
-  React.useEffect(() => {
-    // Simulate loading capstone data
-    setTimeout(() => {
-      const foundCapstone = mockCapstones.find(c => c.id === capstoneId);
-      if (foundCapstone) {
-        setCapstone(foundCapstone);
-        // In real app, check if bookmarked
-        setIsBookmarked(false); // Mock value
-      } else {
-        setError('Capstone not found');
+      try {
+        const { data, error: queryError } = await supabase
+          .from('capstone_projects')
+          .select('id, title, author, department, year, abstract, originalityScore, keywords, tags, pdfUrl')
+          .eq('id', capstoneId)
+          .single();
+
+        if (queryError) throw queryError;
+
+        const nextKeywords = Array.isArray(data.keywords) && data.keywords.length > 0
+          ? data.keywords
+          : Array.isArray(data.tags)
+            ? data.tags
+            : [];
+
+        setCapstone({
+          id: String(data.id),
+          title: String(data.title || ''),
+          author: String(data.author || 'Unknown Author'),
+          department: String(data.department || 'Unknown Department'),
+          year: String(data.year || ''),
+          abstract: String(data.abstract || 'Abstract unavailable.'),
+          originalityScore: typeof data.originalityScore === 'number' ? data.originalityScore : null,
+          keywords: nextKeywords.map((keyword) => String(keyword)),
+          pdfUrl: typeof data.pdfUrl === 'string' ? data.pdfUrl : null,
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load capstone details.');
+        setCapstone(null);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
-    }, 1000);
+    };
+
+    void fetchCapstone();
   }, [capstoneId]);
 
-  const toggleBookmark = () => {
-    setIsBookmarked(!isBookmarked);
-    // In real app, this would update Supabase
+  useEffect(() => {
+    const fetchBookmarkState = async () => {
+      if (!user?.id) {
+        setIsBookmarked(false);
+        return;
+      }
+
+      const { data, error: bookmarkError } = await supabase
+        .from('bookmarks')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('project_id', capstoneId)
+        .maybeSingle();
+
+      if (!bookmarkError) {
+        setIsBookmarked(Boolean(data));
+      }
+    };
+
+    void fetchBookmarkState();
+  }, [capstoneId, user?.id]);
+
+  const handleBookmarkToggle = async () => {
+    if (!user?.id || bookmarkLoading || !capstone) return;
+
+    setBookmarkLoading(true);
+    try {
+      if (isBookmarked) {
+        const { error: deleteError } = await supabase
+          .from('bookmarks')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('project_id', capstone.id);
+
+        if (deleteError) throw deleteError;
+        setIsBookmarked(false);
+      } else {
+        const { error: insertError } = await supabase
+          .from('bookmarks')
+          .insert({ user_id: user.id, project_id: capstone.id });
+
+        if (insertError) throw insertError;
+        setIsBookmarked(true);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update bookmark.');
+    } finally {
+      setBookmarkLoading(false);
+    }
   };
 
-  const handlePdfPress = () => {
-    setShowPdfModal(true);
-    // In real app, this would open the PDF
-  };
+  const citationSource = useMemo(() => {
+    if (!capstone) return null;
+
+    return {
+      type: 'Thesis' as const,
+      title: capstone.title,
+      author: capstone.author,
+      year: capstone.year,
+      institution: `${capstone.department} Department`,
+    };
+  }, [capstone]);
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center bg-white">
-        <ActivityIndicator size="large" color="#2EA95B" />
-        <Text className="mt-4 text-gray-600">Loading capstone details...</Text>
-      </View>
-    );
-  }
-
-  if (error) {
-    return (
-      <View className="flex-1 items-center justify-center bg-white p-6">
-        <Text className="text-red-600">{error}</Text>
-        <TouchableOpacity
-          onPress={() => {
-            // Go back - in real app would use navigation.goBack()
-          }}
-          className="mt-4 p-2 bg-primary-600 text-white rounded-lg"
-        >
-          <Text className="text-white">Go Back</Text>
-        </TouchableOpacity>
-      </View>
+      <AppLayout
+        title="Capstone detail"
+        subtitle="Loading project details"
+        headerLeft={<HeaderIconButton icon="chevron-left" onPress={() => navigation.goBack()} />}
+        scroll={false}
+      >
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={wireframeColors.accent} />
+        </View>
+      </AppLayout>
     );
   }
 
   if (!capstone) {
     return (
-      <View className="flex-1 items-center justify-center bg-white p-6">
-        <Text className="text-gray-600">No capstone data available</Text>
-      </View>
+      <AppLayout
+        title="Capstone detail"
+        subtitle="Project not found"
+        headerLeft={<HeaderIconButton icon="chevron-left" onPress={() => navigation.goBack()} />}
+      >
+        <WireframeCard>
+          <Text style={{ color: wireframeColors.muted, fontSize: 13 }}>{error || 'This capstone could not be found.'}</Text>
+        </WireframeCard>
+      </AppLayout>
     );
   }
 
   return (
-    <View className="flex-1 bg-white">
-      {/* PDF Modal */}
-      <Modal
-        transparent={true}
-        visible={showPdfModal}
-        onRequestClose={() => setShowPdfModal(false)}
-      >
-        <View className="flex-1 items-center justify-center bg-black-500">
-          <View className="w-11/12 bg-white rounded-lg p-4 max-w-md">
-            <View className="flex justify-between items-start mb-3">
-              <Text className="font-medium text-gray-800">
-                {capstone.title}
-              </Text>
-              <TouchableOpacity
-                onPress={() => setShowPdfModal(false)}
-                className="p-2"
-              >
-                <Feather name="x" size={24} className="text-gray-500" />
-              </TouchableOpacity>
-            </View>
+    <AppLayout
+      title="Capstone detail"
+      subtitle="Review the project summary, keywords, and supporting reference details."
+      headerLeft={<HeaderIconButton icon="chevron-left" onPress={() => navigation.goBack()} />}
+      headerRight={<HeaderIconButton icon="book-open" onPress={() => setShowCitationModal(true)} />}
+    >
+      {error ? (
+        <WireframeCard style={{ marginBottom: 16 }}>
+          <Text style={{ color: wireframeColors.danger, fontSize: 13 }}>{error}</Text>
+        </WireframeCard>
+      ) : null}
 
-            <View className="flex items-center justify-center">
-              {/* In real app, would use PDF viewer or Linking.openUrl */}
-              <View className="w-full h-96 bg-gray-200 flex items-center justify-center">
-                <Feather name="file-text" size={32} className="text-gray-400" />
-                <Text className="mt-2 text-sm text-gray-500">
-                  {capstone.pdfUrl ? 'View PDF' : 'PDF not available'}
-                </Text>
-              </View>
-            </View>
+      <WireframeCard style={{ marginBottom: 16 }}>
+        <Text style={{ color: wireframeColors.text, fontSize: 22, fontWeight: '800' }}>{capstone.title}</Text>
+        <Text style={{ color: wireframeColors.muted, fontSize: 13, marginTop: 8 }}>
+          {capstone.author} • {capstone.department} • {capstone.year}
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+          <View style={{ flex: 1, borderRadius: 18, backgroundColor: wireframeColors.accentSoft, padding: 14 }}>
+            <Text style={{ color: wireframeColors.muted, fontSize: 11 }}>Originality</Text>
+            <Text style={{ color: wireframeColors.text, fontSize: 20, fontWeight: '800', marginTop: 6 }}>
+              {capstone.originalityScore == null ? 'N/A' : `${capstone.originalityScore}%`}
+            </Text>
+          </View>
+          <View style={{ flex: 1, borderRadius: 18, backgroundColor: wireframeColors.inputBg, padding: 14 }}>
+            <Text style={{ color: wireframeColors.muted, fontSize: 11 }}>Keywords</Text>
+            <Text style={{ color: wireframeColors.text, fontSize: 20, fontWeight: '800', marginTop: 6 }}>
+              {capstone.keywords.length}
+            </Text>
+          </View>
+        </View>
+      </WireframeCard>
 
-            <View className="mt-4">
-              <TouchableOpacity
-                onPress={() => setShowPdfModal(false)}
-                className="w-full flex items-center justify-center px-4 py-2 bg-primary-600 rounded-lg"
-              >
-                <Text className="text-white font-medium">Close</Text>
-              </TouchableOpacity>
+      <WireframeCard style={{ marginBottom: 16 }}>
+        <Text style={{ color: wireframeColors.text, fontSize: 17, fontWeight: '800', marginBottom: 10 }}>Abstract</Text>
+        <Text style={{ color: wireframeColors.text, fontSize: 14, lineHeight: 22 }}>{capstone.abstract}</Text>
+      </WireframeCard>
+
+      <WireframeCard style={{ marginBottom: 16 }}>
+        <Text style={{ color: wireframeColors.text, fontSize: 17, fontWeight: '800', marginBottom: 12 }}>Keywords</Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {capstone.keywords.length > 0 ? (
+            capstone.keywords.map((keyword) => <WireframePill key={keyword} label={keyword} />)
+          ) : (
+            <Text style={{ color: wireframeColors.muted, fontSize: 13 }}>No keywords available.</Text>
+          )}
+        </View>
+      </WireframeCard>
+
+      <WireframeCard>
+        <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+          <TouchableOpacity
+            onPress={handleBookmarkToggle}
+            disabled={bookmarkLoading}
+            activeOpacity={0.85}
+            style={{
+              flex: 1,
+              minHeight: 52,
+              borderRadius: 18,
+              backgroundColor: isBookmarked ? wireframeColors.accentSoft : wireframeColors.inputBg,
+              borderWidth: 1,
+              borderColor: wireframeColors.line,
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexDirection: 'row',
+            }}
+          >
+            <Feather name="bookmark" size={18} color={wireframeColors.accent} />
+            <Text style={{ color: wireframeColors.text, fontWeight: '700', marginLeft: 10 }}>
+              {bookmarkLoading ? 'Saving...' : isBookmarked ? 'Saved' : 'Save'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => setShowCitationModal(true)}
+            activeOpacity={0.85}
+            style={{
+              flex: 1,
+              minHeight: 52,
+              borderRadius: 18,
+              backgroundColor: wireframeColors.inputBg,
+              borderWidth: 1,
+              borderColor: wireframeColors.line,
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexDirection: 'row',
+            }}
+          >
+            <Feather name="file-text" size={18} color={wireframeColors.accent} />
+            <Text style={{ color: wireframeColors.text, fontWeight: '700', marginLeft: 10 }}>Generate Citation</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => setShowPdfModal(true)}
+            activeOpacity={0.85}
+            style={{
+              flex: 1,
+              minHeight: 52,
+              borderRadius: 18,
+              backgroundColor: wireframeColors.accent,
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexDirection: 'row',
+            }}
+          >
+            <Feather name="file-text" size={18} color="#FFFFFF" />
+            <Text style={{ color: '#FFFFFF', fontWeight: '700', marginLeft: 10 }}>Open PDF</Text>
+          </TouchableOpacity>
+        </View>
+      </WireframeCard>
+
+      <Modal visible={showPdfModal} transparent animationType="slide" onRequestClose={() => setShowPdfModal(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.35)' }}>
+          <View style={{ backgroundColor: wireframeColors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20 }}>
+            <Text style={{ color: wireframeColors.text, fontSize: 20, fontWeight: '800' }}>Reference document</Text>
+            <Text style={{ color: wireframeColors.muted, fontSize: 13, marginTop: 8 }}>{capstone.pdfUrl || 'PDF unavailable'}</Text>
+            <View
+              style={{
+                height: 220,
+                borderRadius: 20,
+                backgroundColor: wireframeColors.inputBg,
+                borderWidth: 1,
+                borderColor: wireframeColors.line,
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: 16,
+              }}
+            >
+              <Feather name="file-text" size={34} color={wireframeColors.accent} />
+              <Text style={{ color: wireframeColors.muted, marginTop: 10 }}>Preview placeholder</Text>
             </View>
+            <TouchableOpacity
+              onPress={() => setShowPdfModal(false)}
+              activeOpacity={0.85}
+              style={{
+                minHeight: 52,
+                borderRadius: 18,
+                backgroundColor: wireframeColors.accent,
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: 18,
+              }}
+            >
+              <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>Close</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      <ScrollView className="p-4">
-        {/* Header */}
-        <View className="mb-6">
-          <Text className="text-xl font-bold text-gray-800">
-            {capstone.title}
-          </Text>
-          <View className="flex items-center space-x-3 mt-2">
-            <Text className="text-sm text-gray-500">
-              {capstone.author} • {capstone.department} • {capstone.year}
-            </Text>
-          </View>
-
-          {/* Originality Score Badge */}
-          <View className="mt-3">
-            <Text className="text-sm font-medium text-gray-700">
-              Originality Score:
-            </Text>
-            <View className="flex items-center space-x-2 mt-1">
-              <View className={`w-4 h-4 rounded-full ${
-                capstone.originalityScore >= 90
-                  ? 'bg-green-500'
-                  : capstone.originalityScore >= 75
-                    ? 'bg-yellow-500'
-                    : 'bg-red-500'
-              }`} />
-              <Text className="text-sm font-medium text-gray-600">
-                {capstone.originalityScore}%
-              </Text>
-            </View>
-          </View>
+      <Modal transparent visible={showCitationModal} onRequestClose={() => setShowCitationModal(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.35)' }}>
+          {citationSource ? <CitationBottomSheet sourceData={citationSource} onClose={() => setShowCitationModal(false)} /> : null}
         </View>
-
-        {/* Abstract */}
-        <View className="mb-6">
-          <Text className="font-semibold text-gray-800 mb-2">
-            Abstract
-          </Text>
-          <Text className="text-gray-700 leading-relaxed">
-            {capstone.abstract}
-          </Text>
-        </View>
-
-        {/* Keywords */}
-        {capstone.keywords.length > 0 && (
-          <View className="mb-6">
-            <Text className="font-semibold text-gray-800 mb-2">
-              Keywords
-            </Text>
-            <View className="flex flex-wrap gap-2">
-              {capstone.keywords.map((keyword, index) => (
-                <View key={index} className="px-3 py-1 bg-primary-50 rounded-lg text-sm">
-                  <Text className="text-primary-600">{keyword}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-
-        {/* Action Buttons */}
-        <View className="mb-6">
-          <View className="space-y-3">
-            <TouchableOpacity
-              onPress={toggleBookmark}
-              activeOpacity={0.7}
-              className={`w-full flex items-center justify-center px-4 py-2 border-2 ${
-                isBookmarked
-                  ? 'border-primary-600 bg-primary-50'
-                  : 'border-gray-300 bg-white'
-              } rounded-lg`}
-            >
-              <View className="flex items-center space-x-2">
-                <Feather name={isBookmarked ? 'bookmark' : 'bookmark-off'} size={20} className={`${isBookmarked
-                  ? 'text-primary-600'
-                  : 'text-gray-500'
-                }`} />
-                <Text className="font-medium text-gray-800">
-                  {isBookmarked ? 'Bookmarked' : 'Bookmark'}
-                </Text>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={handlePdfPress}
-              activeOpacity={0.7}
-              className="w-full flex items-center justify-center px-4 py-2 bg-primary-600 rounded-lg"
-            >
-              <View className="flex items-center space-x-2">
-                <Feather name="file-text" size={20} className="text-white" />
-                <Text className="text-white font-medium">
-                  View PDF
-                </Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </ScrollView>
-    </View>
+      </Modal>
+    </AppLayout>
   );
 };
 
