@@ -24,12 +24,28 @@ expo-env.d.ts
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+.tmp/
+temp_kit/
+*.backup
+*.xml
+typescript_errors.txt
+test_mcp.json
+screen.png
+root-cause-fix-report.md
+FINAL_SANITIZATION_RATE_LIMITING_REPORT.md
+INPUT_SANITIZATION_RATE_LIMITING_REPORT.md
+DProjectsCapire-app.claude.mcp.json
+DProjectsCapire-app.claudetest.txt
+supabase/.temp/
+android/app/debug.keystore
 
 # macOS
 .DS_Store
 *.pem
 
 # local env files
+.env
+.env.local
 .env*.local
 
 # typescript

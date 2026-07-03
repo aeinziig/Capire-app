@@ -1,118 +1,235 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
-import { Feather } from '@expo/vector-icons';
-import { supabase } from '../../services/supabase';
+import React, { useEffect, useState } from 'react';
+import { Text, TouchableOpacity, View } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
+import { makeRedirectUri } from 'expo-auth-session';
+import * as QueryParams from 'expo-auth-session/build/QueryParams';
+import * as WebBrowser from 'expo-web-browser';
 import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootParamList } from '@/navigation/types';
+import { supabase } from '@/services/supabase';
+import { mapAuthError } from '@/utils/supabase/supabaseErrorHandler';
+import {
+  AuthLayout,
+  WireframeButton,
+  WireframeInput,
+  useWireframeTheme,
+} from '@/components/wireframe/Wireframe';
+
+type LoginScreenNavigationProp = NativeStackNavigationProp<RootParamList>;
+const LAST_LOGIN_EMAIL_KEY = 'last_login_email';
+
+WebBrowser.maybeCompleteAuthSession();
 
 const LoginScreen: React.FC = () => {
+  const navigation = useNavigation<LoginScreenNavigationProp>();
+  const wireframeColors = useWireframeTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const navigation = useNavigation();
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  useEffect(() => {
+    const loadSavedEmail = async () => {
+      const savedEmail = await SecureStore.getItemAsync(LAST_LOGIN_EMAIL_KEY);
+      if (savedEmail) setEmail(savedEmail);
+    };
+
+    void loadSavedEmail();
+  }, []);
+
+  const rememberEmail = async (value: string) => {
+    if (!value.trim()) return;
+    await SecureStore.setItemAsync(LAST_LOGIN_EMAIL_KEY, value.trim());
+  };
+
+  const createSessionFromUrl = async (url: string) => {
+    const { params, errorCode } = QueryParams.getQueryParams(url);
+    if (errorCode) throw new Error(errorCode);
+
+    const accessToken = params.access_token;
+    const refreshToken = params.refresh_token;
+
+    if (typeof accessToken !== 'string' || typeof refreshToken !== 'string') return;
+
+    const { data, error } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+
+    if (error) throw error;
+    const sessionEmail = data.session?.user?.email;
+    if (sessionEmail) await rememberEmail(sessionEmail);
+  };
+
+  const validateEmail = (value: string) => {
+    if (!value.trim()) return 'Email is required';
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? null : 'Enter a valid email address';
+  };
+
+  const validatePassword = (value: string) => {
+    if (!value) return 'Password is required';
+    return value.length >= 6 ? null : 'Password must be at least 6 characters';
+  };
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      setError('Please fill in all fields');
-      return;
-    }
+    const nextEmailError = validateEmail(email);
+    const nextPasswordError = validatePassword(password);
+    setEmailError(nextEmailError);
+    setPasswordError(nextPasswordError);
+
+    if (nextEmailError || nextPasswordError) return;
 
     setLoading(true);
-    setError(null);
+    setFormError(null);
 
     try {
-      const { data, error: supabaseError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (supabaseError) throw supabaseError;
-
-      // Navigate based on user role (in real app, check user metadata)
-      navigation.replace('MainTabs');
-    } catch (err: any) {
-      setError(err.message || 'Login failed');
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      await rememberEmail(email);
+    } catch (err: unknown) {
+      setFormError(mapAuthError(err));
     } finally {
       setLoading(false);
     }
   };
 
-  const handleForgotPassword = () => {
-    navigation.navigate('ForgotPassword');
-  };
+  const handleGoogleLogin = async () => {
+    setGoogleLoading(true);
+    setFormError(null);
 
-  const handleRegister = () => {
-    navigation.navigate('Register');
+    try {
+      const redirectTo = makeRedirectUri({
+        scheme: 'capire',
+        path: 'auth',
+      });
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo,
+          skipBrowserRedirect: true,
+        },
+      });
+
+      if (error) throw error;
+      if (!data?.url) throw new Error('Google sign-in URL was not returned');
+
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+      if (result.type === 'success') {
+        await createSessionFromUrl(result.url);
+      }
+    } catch (err: unknown) {
+      setFormError(mapAuthError(err));
+    } finally {
+      setGoogleLoading(false);
+    }
   };
 
   return (
-    <View className="flex-1 bg-white p-6 space-y-4">
-      <View className="space-y-4">
-        <Text className="text-2xl font-bold text-gray-800">
-          Welcome Back
+    <AuthLayout
+      title="Welcome back"
+      subtitle="Research smarter, browse capstones faster, and keep every project touchpoint in one place."
+      topNote="AI-powered capstone archive and recommendation system"
+      footer={
+        <View>
+          <Text style={{ color: wireframeColors.muted, textAlign: 'center', fontSize: 13 }}>
+            New to CAPIRE?
+          </Text>
+          <TouchableOpacity onPress={() => navigation.navigate('Register')} activeOpacity={0.85}>
+            <Text style={{ color: wireframeColors.accent, textAlign: 'center', fontSize: 14, fontWeight: '700', marginTop: 6 }}>
+              Create an account
+            </Text>
+          </TouchableOpacity>
+        </View>
+      }
+    >
+      <Text style={{ color: wireframeColors.muted, fontSize: 14, lineHeight: 21, marginBottom: 24 }}>
+        Sign in with your institutional account to continue.
+      </Text>
+
+      <WireframeInput
+        label="Institutional Email"
+        icon="mail"
+        value={email}
+        onChangeText={(value) => {
+          setEmail(value);
+          if (formError) setFormError(null);
+          if (emailError) setEmailError(validateEmail(value));
+        }}
+        autoCapitalize="none"
+        keyboardType="email-address"
+        autoCorrect={false}
+        autoComplete="email"
+        textContentType="username"
+        importantForAutofill="yes"
+        placeholder="name@school.edu"
+        error={emailError}
+      />
+
+      <WireframeInput
+        label="Password"
+        icon="lock"
+        value={password}
+        onChangeText={(value) => {
+          setPassword(value);
+          if (formError) setFormError(null);
+          if (passwordError) setPasswordError(validatePassword(value));
+        }}
+        secureTextEntry
+        autoCorrect={false}
+        autoComplete="current-password"
+        textContentType="password"
+        importantForAutofill="yes"
+        placeholder="Enter your password"
+        error={passwordError}
+      />
+
+      <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')} activeOpacity={0.85}>
+        <Text style={{ color: wireframeColors.accent, textAlign: 'right', fontWeight: '700', marginBottom: 20 }}>
+          Forgot password?
         </Text>
-        <Text className="text-sm text-gray-500">
-          Sign in to your CAPIRE account
-        </Text>
-      </View>
-
-      <View className="space-y-3">
-        <TextInput
-          placeholder="Email"
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          className="border border-gray-300 rounded-lg p-4 focus:border-primary-500 focus:ring-2 focus:ring-primary-200 text-base"
-        />
-
-        <TextInput
-          placeholder="Password"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          className="border border-gray-300 rounded-lg p-4 focus:border-primary-500 focus:ring-2 focus:ring-primary-200 text-base"
-        />
-
-        {error && (
-          <View className="p-3 bg-red-50 rounded-lg">
-            <Text className="text-sm text-red-600">{error}</Text>
-          </View>
-        )}
-      </View>
-
-      <TouchableOpacity
-        onPress={handleLogin}
-        disabled={loading}
-        className={`w-full flex items-center justify-center px-4 py-2 bg-primary-600 rounded-lg ${
-          loading ? 'opacity-70' : ''
-        }`}
-      >
-        {loading ? (
-          <>
-            <Feather name="loader" size={16} color="white" className="mr-2" />
-            <Text className="text-white font-medium">Logging in...</Text>
-          </>
-        ) : (
-          <Text className="text-white font-medium">Sign In</Text>
-        )}
       </TouchableOpacity>
 
-      <View className="flex justify-center items-center space-x-4">
-        <TouchableOpacity
-          onPress={handleForgotPassword}
-          className="text-sm text-gray-600"
+      {formError ? (
+        <View
+          style={{
+            borderRadius: 18,
+            borderWidth: 1,
+            borderColor: wireframeColors.danger,
+            backgroundColor: wireframeColors.dangerSoft,
+            padding: 14,
+            marginBottom: 18,
+          }}
         >
-          Forgot Password?
-        </TouchableOpacity>
+            <Text style={{ color: wireframeColors.danger, fontSize: 13 }}>{formError}</Text>
+          </View>
+        ) : null}
 
-        <TouchableOpacity
-          onPress={handleRegister}
-          className="text-sm font-medium text-primary-600"
-        >
-          Create Account
-        </TouchableOpacity>
+      <WireframeButton
+        label={loading ? 'Signing in...' : 'Sign In'}
+        onPress={handleLogin}
+        disabled={loading || !email.trim() || !password.trim()}
+        icon="arrow-right"
+      />
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 18 }}>
+        <View style={{ flex: 1, height: 1, backgroundColor: wireframeColors.line }} />
+        <Text style={{ color: wireframeColors.muted, fontSize: 12, fontWeight: '700', marginHorizontal: 12 }}>OR</Text>
+        <View style={{ flex: 1, height: 1, backgroundColor: wireframeColors.line }} />
       </View>
-    </View>
+
+      <WireframeButton
+        label={googleLoading ? 'Connecting to Google...' : 'Continue with Google'}
+        onPress={handleGoogleLogin}
+        disabled={googleLoading || loading}
+        variant="secondary"
+        icon="globe"
+      />
+    </AuthLayout>
   );
 };
 

@@ -1,150 +1,240 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, Image, ScrollView } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { supabase, updateUser } from '@/services/supabase';
+import { useApp } from '@/context/AppContext';
+import type { RootParamList, TabParamList } from '@/navigation/types';
+import {
+  AppLayout,
+  HeaderIconButton,
+  WireframeButton,
+  WireframeCard,
+  WireframeInput,
+  useWireframeTheme,
+} from '@/components/wireframe/Wireframe';
 
 const OwnProfileScreen: React.FC = () => {
-  const user = {
-    name: 'Alex Johnson',
-    email: 'alex.johnson@university.edu',
-    role: 'Student',
-    department: 'Computer Science',
-    year: 'Senior',
-    studentId: 'CS2021001',
-    avatar: 'https://i.pravatar.cc/150?img=1',
-    stats: {
-      capstonesReviewed: 5,
-      originalityChecks: 12,
-      bookmarks: 8,
-      researchHours: 45
+  const navigation = useNavigation<NativeStackNavigationProp<RootParamList>>();
+  const tabNavigation = useNavigation<BottomTabNavigationProp<TabParamList>>();
+  const wireframeColors = useWireframeTheme();
+  const { user, loading, error, refreshUserData } = useApp();
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+
+  const userName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email?.split('@')[0] || 'User';
+  const displayProfile = user?.user_metadata?.display_profile || 'Student Researcher';
+  const userEmail = user?.email || '';
+  const userStudentId = user?.user_metadata?.student_id || user?.user_metadata?.id_number || 'No ID';
+
+  const [displayNameInput, setDisplayNameInput] = useState(userName);
+  const [displayProfileInput, setDisplayProfileInput] = useState(displayProfile);
+
+  const initials = useMemo(() => {
+    const source = displayNameInput.trim() || userName;
+    return source.charAt(0).toUpperCase();
+  }, [displayNameInput, userName]);
+
+  const handleSaveProfile = async () => {
+    const nextDisplayName = displayNameInput.trim();
+    const nextDisplayProfile = displayProfileInput.trim();
+
+    if (!nextDisplayName) {
+      setSaveError('Display name is required.');
+      return;
+    }
+
+    if (!nextDisplayProfile) {
+      setSaveError('Display profile is required.');
+      return;
+    }
+
+    setSaving(true);
+    setSaveError(null);
+    setSaveSuccess(null);
+
+    try {
+      const { error: updateError } = await updateUser({
+        data: {
+          ...user?.user_metadata,
+          full_name: nextDisplayName,
+          name: nextDisplayName,
+          display_profile: nextDisplayProfile,
+        },
+      });
+
+      if (updateError) throw updateError;
+      await refreshUserData();
+      setSaveSuccess('Profile updated.');
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to update profile.');
+    } finally {
+      setSaving(false);
     }
   };
 
-  return (
-    <View className="flex-1 bg-white">
-      <View className="flex items-center justify-between border-b border-gray-200 p-4">
-        <Text className="text-xl font-bold text-gray-800">
-          My Profile
-        </Text>
-        <TouchableOpacity className="p-2">
-          <Feather name="settings" size={24} className="text-gray-500" />
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView className="p-6">
-        <View className="items-center space-y-6">
-          {/* Avatar */}
-          <View className="w-24 h-24 bg-gray-300 rounded-full flex items-center justify-center mb-4">
-            <Text className="text-xs font-medium text-gray-600">
-              {user.name.charAt(0)}
-            </Text>
-          </View>
-
-          {/* Name and Role */}
-          <View className="items-center space-y-1">
-            <Text className="text-2xl font-bold text-gray-800">
-              {user.name}
-            </Text>
-            <Text className="text-sm text-gray-500">
-              {user.role} • {user.department} • {user.year}
-            </Text>
-          </View>
-
-          {/* Stats */}
-          <View className="w-full grid grid-cols-2 gap-4">
-            <View className="p-4 bg-gray-50 rounded-lg text-center">
-              <Text className="text-2xl font-bold text-primary-600">
-                {user.stats.capstonesReviewed}
-              </Text>
-              <Text className="text-sm text-gray-600">
-                Capstones Reviewed
-              </Text>
-            </View>
-
-            <View className="p-4 bg-gray-50 rounded-lg text-center">
-              <Text className="text-2xl font-bold text-primary-600">
-                {user.stats.originalityChecks}
-              </Text>
-              <Text className="text-sm text-gray-600">
-                Originality Checks
-              </Text>
-            </View>
-
-            <View className="p-4 bg-gray-50 rounded-lg text-center">
-              <Text className="text-2xl font-bold text-primary-600">
-                {user.stats.bookmarks}
-              </Text>
-              <Text className="text-sm text-gray-600">
-                Bookmarks
-              </Text>
-            </View>
-
-            <View className="p-4 bg-gray-50 rounded-lg text-center">
-              <Text className="text-2xl font-bold text-primary-600">
-                {user.stats.researchHours}h
-              </Text>
-              <Text className="text-sm text-gray-600">
-                Research Hours
-              </Text>
-            </View>
-          </View>
-
-          {/* Info Section */}
-          <View className="w-full space-y-4">
-            <Text className="font-semibold text-gray-800">
-              Account Information
-            </Text>
-            <View className="space-y-2">
-              <View className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                <Feather name="mail" size={20} className="text-gray-400" />
-                <Text className="text-gray-700">
-                  {user.email}
-                </Text>
-              </View>
-
-              <View className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                <Feather name="user" size={20} className="text-gray-400" />
-                <Text className="text-gray-700">
-                  ID: {user.studentId}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Actions */}
-          <View className="w-full space-y-3">
-            <Text className="font-semibold text-gray-800">
-              Actions
-            </Text>
-
-            <TouchableOpacity
-              activeOpacity={0.7}
-              className="p-4 bg-gray-50 rounded-lg flex items-center justify-between"
-            >
-              <View className="flex items-center space-x-3">
-                <Feather name="edit-2" size={20} className="text-primary-600" />
-                <Text className="font-medium text-gray-800">
-                  Edit Profile
-                </Text>
-              </View>
-              <Feather name="chevron-right" size={20} className="text-gray-400" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              activeOpacity={0.7}
-              className="p-4 bg-gray-50 rounded-lg flex items-center justify-between"
-            >
-              <View className="flex items-center space-x-3">
-                <Feather name="log-out" size={20} className="text-red-500" />
-                <Text className="font-medium text-gray-800">
-                  Log Out
-                </Text>
-              </View>
-              <Feather name="chevron-right" size={20} className="text-gray-400" />
-            </TouchableOpacity>
-          </View>
+  if (loading) {
+    return (
+      <AppLayout title="Profile" subtitle="Loading your account" scroll={false}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={wireframeColors.accent} />
         </View>
-      </ScrollView>
-    </View>
+      </AppLayout>
+    );
+  }
+
+  if (!user) {
+    return (
+      <AppLayout title="Profile" subtitle="Sign in required">
+        <WireframeCard>
+          <Text style={{ color: wireframeColors.muted, fontSize: 13 }}>Please log in to view your profile.</Text>
+        </WireframeCard>
+      </AppLayout>
+    );
+  }
+
+  return (
+    <AppLayout
+      title="My Profile"
+      subtitle="Customize what people see beyond your sign-in email."
+      headerRight={<HeaderIconButton icon="settings" onPress={() => navigation.navigate('Settings')} />}
+    >
+      <WireframeCard style={{ marginBottom: 16, alignItems: 'center' }}>
+        <View
+          style={{
+            width: 90,
+            height: 90,
+            borderRadius: 45,
+            backgroundColor: wireframeColors.accentSoft,
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: 16,
+          }}
+        >
+          <Text style={{ color: wireframeColors.accent, fontSize: 32, fontWeight: '800' }}>{initials}</Text>
+        </View>
+        <Text style={{ color: wireframeColors.text, fontSize: 22, fontWeight: '800' }}>{displayNameInput.trim() || userName}</Text>
+        <Text style={{ color: wireframeColors.muted, fontSize: 13, marginTop: 6 }}>
+          {displayProfileInput.trim() || displayProfile}
+        </Text>
+      </WireframeCard>
+
+      <WireframeCard style={{ marginBottom: 16 }}>
+        <Text style={{ color: wireframeColors.text, fontSize: 17, fontWeight: '800', marginBottom: 14 }}>Profile customization</Text>
+        <WireframeInput
+          label="Display Name"
+          icon="edit-3"
+          value={displayNameInput}
+          onChangeText={(value) => {
+            setDisplayNameInput(value);
+            if (saveError) setSaveError(null);
+            if (saveSuccess) setSaveSuccess(null);
+          }}
+          placeholder="How your name appears in the app"
+        />
+        <WireframeInput
+          label="Display Profile"
+          icon="tag"
+          value={displayProfileInput}
+          onChangeText={(value) => {
+            setDisplayProfileInput(value);
+            if (saveError) setSaveError(null);
+            if (saveSuccess) setSaveSuccess(null);
+          }}
+          placeholder="Student Researcher"
+        />
+        {saveError ? <Text style={{ color: wireframeColors.danger, fontSize: 12, marginBottom: 12 }}>{saveError}</Text> : null}
+        {saveSuccess ? <Text style={{ color: wireframeColors.accent, fontSize: 12, marginBottom: 12 }}>{saveSuccess}</Text> : null}
+        <WireframeButton label={saving ? 'Saving...' : 'Save Profile'} onPress={handleSaveProfile} disabled={saving} icon="save" />
+      </WireframeCard>
+
+      <WireframeCard style={{ marginBottom: 16 }}>
+        <Text style={{ color: wireframeColors.text, fontSize: 17, fontWeight: '800', marginBottom: 14 }}>My workspace</Text>
+        <TouchableOpacity
+          onPress={() => tabNavigation.navigate('Bookmarks')}
+          activeOpacity={0.85}
+          style={{
+            minHeight: 52,
+            borderRadius: 18,
+            borderWidth: 1,
+            borderColor: wireframeColors.line,
+            backgroundColor: wireframeColors.inputBg,
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingHorizontal: 16,
+            marginBottom: 10,
+          }}
+        >
+          <Feather name="bookmark" size={18} color={wireframeColors.accent} />
+          <Text style={{ color: wireframeColors.text, fontSize: 14, fontWeight: '700', marginLeft: 12, flex: 1 }}>
+            Saved Projects
+          </Text>
+          <Feather name="chevron-right" size={18} color={wireframeColors.muted} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => tabNavigation.navigate('SubmitTopic')}
+          activeOpacity={0.85}
+          style={{
+            minHeight: 52,
+            borderRadius: 18,
+            borderWidth: 1,
+            borderColor: wireframeColors.line,
+            backgroundColor: wireframeColors.inputBg,
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingHorizontal: 16,
+          }}
+        >
+          <Feather name="edit-3" size={18} color={wireframeColors.accent} />
+          <Text style={{ color: wireframeColors.text, fontSize: 14, fontWeight: '700', marginLeft: 12, flex: 1 }}>
+            Propose Topic
+          </Text>
+          <Feather name="chevron-right" size={18} color={wireframeColors.muted} />
+        </TouchableOpacity>
+      </WireframeCard>
+
+      <WireframeCard style={{ marginBottom: 16 }}>
+        <Text style={{ color: wireframeColors.text, fontSize: 17, fontWeight: '800', marginBottom: 14 }}>Account information</Text>
+        {[['Email', userEmail], ['ID Number', userStudentId]].map(([label, value]) => (
+          <View
+            key={label}
+            style={{
+              borderRadius: 16,
+              backgroundColor: wireframeColors.inputBg,
+              borderWidth: 1,
+              borderColor: wireframeColors.line,
+              padding: 14,
+              marginBottom: 10,
+            }}
+          >
+            <Text style={{ color: wireframeColors.muted, fontSize: 11, fontWeight: '700' }}>{label}</Text>
+            <Text style={{ color: wireframeColors.text, fontSize: 14, marginTop: 6 }}>{value}</Text>
+          </View>
+        ))}
+      </WireframeCard>
+
+      <WireframeCard>
+        <TouchableOpacity
+          onPress={() => supabase.auth.signOut()}
+          activeOpacity={0.85}
+          style={{
+            minHeight: 52,
+            borderRadius: 18,
+            backgroundColor: wireframeColors.dangerSoft,
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexDirection: 'row',
+          }}
+        >
+          <Feather name="log-out" size={18} color={wireframeColors.danger} />
+          <Text style={{ color: wireframeColors.danger, fontSize: 14, fontWeight: '700', marginLeft: 10 }}>Log Out</Text>
+        </TouchableOpacity>
+        {error ? <Text style={{ color: wireframeColors.danger, fontSize: 12, marginTop: 10 }}>{error}</Text> : null}
+      </WireframeCard>
+    </AppLayout>
   );
 };
 

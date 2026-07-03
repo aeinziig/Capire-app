@@ -1,102 +1,247 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, FlatList, Image } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, Text, TouchableOpacity, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useApp } from '@/context/AppContext';
+import { supabase } from '@/services/supabase';
+import type { RootParamList } from '@/navigation/types';
+import {
+  AppLayout,
+  HeaderIconButton,
+  WireframeCard,
+  useWireframeTheme,
+} from '@/components/wireframe/Wireframe';
 
 type Conversation = {
   id: string;
+  partnerId: string;
   name: string;
   lastMessage: string;
   time: string;
   unreadCount: number;
-  avatar?: string; // URL or local asset
+};
+
+type ChatMessageRow = {
+  id: string;
+  sender_id: string;
+  receiver_id: string;
+  message: string;
+  is_read: boolean | null;
+  created_at: string | null;
+};
+
+type UserRow = {
+  id: string;
+  full_name: string | null;
+  email: string;
 };
 
 const MessagesScreen: React.FC = () => {
-  const conversations: Conversation[] = [
-    {
-      id: '1',
-      name: 'Alex Johnson',
-      lastMessage: 'Have you looked at the latest research on neural networks?',
-      time: '2:30 PM',
-      unreadCount: 2,
-      avatar: 'https://i.pravatar.cc/150?img=1'
-    },
-    {
-      id: '2',
-      name: 'Research Group Chat',
-      lastMessage: 'Meeting tomorrow at 10 AM in room 205',
-      time: 'Yesterday',
-      unreadCount: 0,
-    },
-    {
-      id: '3',
-      name: 'Dr. Smith',
-      lastMessage: 'Your capstone proposal looks good. Just need to add more references.',
-      time: 'Monday',
-      unreadCount: 1,
-      avatar: 'https://i.pravatar.cc/150?img=2'
-    }
-  ];
+  const colors = useWireframeTheme();
+  const navigation = useNavigation<NativeStackNavigationProp<RootParamList>>();
+  const { user } = useApp();
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const renderConversation = ({ item }: { item: Conversation }) => (
-    <TouchableOpacity
-      activeOpacity={0.7}
-      className="p-4 border-b border-gray-100"
-    >
-      <View className="flex justify-between items-start">
-        <View className="flex items-start space-x-3">
-          {item.avatar && (
-            <View className="w-10 h-10">
-              {/* In real app, would use Image component */}
-              <View className="w-full h-full bg-gray-300 rounded-full flex items-center justify-center">
-                <Text className="text-xs font-medium text-gray-600">
-                  {item.name.charAt(0)}
-                </Text>
-              </View>
-            </View>
-          )}
-          <View className="flex-1">
-            <Text className="font-medium text-gray-800">
-              {item.name}
-            </Text>
-            <Text className="text-sm text-gray-500 line-clamp-1">
-              {item.lastMessage}
-            </Text>
-          </View>
+  const fetchConversations = useCallback(async () => {
+    if (!user) {
+      setConversations([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { data, error: messageError } = await supabase
+        .from('chat_messages')
+        .select('id, sender_id, receiver_id, message, is_read, created_at')
+        .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+        .order('created_at', { ascending: false });
+
+      if (messageError) {
+        throw messageError;
+      }
+
+      const messages = (data ?? []) as ChatMessageRow[];
+      const partnerIds = [...new Set(messages.map((message) => (
+        message.sender_id === user.id ? message.receiver_id : message.sender_id
+      )))];
+
+      let usersById = new Map<string, UserRow>();
+      if (partnerIds.length > 0) {
+        const { data: partnerData, error: partnerError } = await supabase
+          .from('users')
+          .select('id, full_name, email')
+          .in('id', partnerIds);
+
+        if (partnerError) {
+          throw partnerError;
+        }
+
+        usersById = new Map(((partnerData ?? []) as UserRow[]).map((partner) => [partner.id, partner]));
+      }
+
+      const nextConversations = new Map<string, Conversation>();
+
+      messages.forEach((message) => {
+        const partnerId = message.sender_id === user.id ? message.receiver_id : message.sender_id;
+        if (!partnerId) {
+          return;
+        }
+
+        const existing = nextConversations.get(partnerId);
+        if (!existing) {
+          const partner = usersById.get(partnerId);
+          nextConversations.set(partnerId, {
+            id: partnerId,
+            partnerId,
+            name: partner?.full_name || partner?.email || `User ${partnerId.slice(0, 8)}`,
+            lastMessage: message.message,
+            time: message.created_at
+              ? new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              : '',
+            unreadCount: message.receiver_id === user.id && !message.is_read ? 1 : 0,
+          });
+          return;
+        }
+
+        if (message.receiver_id === user.id && !message.is_read) {
+          existing.unreadCount += 1;
+        }
+      });
+
+      setConversations(Array.from(nextConversations.values()));
+    } catch (err) {
+      setConversations([]);
+      setError(err instanceof Error ? err.message : 'Failed to load messages.');
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    void fetchConversations();
+
+    if (!user) {
+      return;
+    }
+
+    const channel = supabase
+      .channel(`messages-list-${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, (payload) => {
+        const row = (payload.new || payload.old) as Partial<ChatMessageRow>;
+        if (row.sender_id === user.id || row.receiver_id === user.id) {
+          void fetchConversations();
+        }
+      })
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [fetchConversations, user]);
+
+  if (loading) {
+    return (
+      <AppLayout title="Messages" subtitle="Loading conversations" scroll={false}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={colors.accent} />
+          <Text style={{ marginTop: 12, color: colors.muted }}>Loading messages...</Text>
         </View>
-        <View className="items-end space-x-2">
-          {item.unreadCount > 0 && (
-            <View className={`w-6 h-6 bg-primary-600 text-white rounded-full flex items-center justify-center text-xs font-medium`}>
-              {item.unreadCount}
-            </View>
-          )}
-          <Text className="text-xs text-gray-400">
-            {item.time}
-          </Text>
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
+      </AppLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <AppLayout title="Messages" subtitle="Conversation feed">
+        <WireframeCard>
+          <Text style={{ color: colors.danger, fontSize: 13 }}>{error}</Text>
+        </WireframeCard>
+      </AppLayout>
+    );
+  }
+
+  if (!user) {
+    return (
+      <AppLayout title="Messages" subtitle="Sign in required">
+        <WireframeCard>
+          <Text style={{ color: colors.muted, fontSize: 13 }}>Please log in to access messages.</Text>
+        </WireframeCard>
+      </AppLayout>
+    );
+  }
 
   return (
-    <View className="flex-1 bg-white">
-      <View className="flex items-center justify-between border-b border-gray-200 p-4">
-        <Text className="text-xl font-bold text-gray-800">
-          Messages
-        </Text>
-        <TouchableOpacity className="p-2">
-          <Feather name="search" size={24} className="text-gray-500" />
-        </TouchableOpacity>
-      </View>
-
+    <AppLayout
+      title="Messages"
+      subtitle="Academic conversations and follow-ups"
+      headerRight={<HeaderIconButton icon="search" />}
+    >
       <FlatList
         data={conversations}
-        renderItem={renderConversation}
         keyExtractor={(item) => item.id}
-        contentContainerClassName="p-4"
-        showsVerticalScrollIndicator={false}
+        scrollEnabled={false}
+        ListEmptyComponent={(
+          <WireframeCard>
+            <Text style={{ color: colors.muted, fontSize: 13 }}>No conversations yet.</Text>
+          </WireframeCard>
+        )}
+        renderItem={({ item }) => (
+          <TouchableOpacity
+            activeOpacity={0.88}
+            onPress={() => navigation.navigate('ChatConversation', {
+              partnerId: item.partnerId,
+              partnerName: item.name,
+            })}
+          >
+            <WireframeCard style={{ marginBottom: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 16,
+                    backgroundColor: colors.accentSoft,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginRight: 12,
+                  }}
+                >
+                  <Text style={{ color: colors.accent, fontWeight: '800' }}>{item.name.charAt(0)}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>{item.name}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>{item.lastMessage}</Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>{item.time}</Text>
+                  {item.unreadCount > 0 ? (
+                    <View
+                      style={{
+                        minWidth: 24,
+                        height: 24,
+                        borderRadius: 12,
+                        backgroundColor: colors.accent,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        paddingHorizontal: 6,
+                        marginTop: 8,
+                      }}
+                    >
+                      <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>{item.unreadCount}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            </WireframeCard>
+          </TouchableOpacity>
+        )}
       />
-    </View>
+    </AppLayout>
   );
 };
 
