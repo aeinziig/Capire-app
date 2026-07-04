@@ -4,6 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/services/supabase';
 import { mapAuthError } from '@/utils/supabase/supabaseErrorHandler';
+import { getRoleFromEmail } from '@/utils/authValidation';
 import {
   AppLayout,
   HeaderIconButton,
@@ -60,7 +61,7 @@ const TopicReviewScreen: React.FC = () => {
     setError(null);
 
     try {
-      const role = user.user_metadata?.role || user.app_metadata?.role;
+      const role = user.user_metadata?.role || user.app_metadata?.role || getRoleFromEmail(user.email || '');
       if (role !== 'faculty') throw new Error('Access denied. Faculty access required.');
 
       const { data, error: queryError } = await supabase

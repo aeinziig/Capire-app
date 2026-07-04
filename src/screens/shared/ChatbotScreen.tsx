@@ -6,6 +6,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/services/supabase';
 import type { RootParamList } from '@/navigation/types';
+import { getRoleFromEmail } from '@/utils/authValidation';
 import {
   AppLayout,
   HeaderIconButton,
@@ -92,7 +93,7 @@ const ChatbotScreen: React.FC = () => {
         body: {
           message: trimmedInput,
           history,
-          role: user?.user_metadata?.role || user?.app_metadata?.role || 'student',
+          role: user?.user_metadata?.role || user?.app_metadata?.role || getRoleFromEmail(user?.email || '') || 'student',
         },
       });
 

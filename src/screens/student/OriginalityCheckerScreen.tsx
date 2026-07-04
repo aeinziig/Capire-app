@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
 import CitationBottomSheet from '../shared/CitationBottomSheet';
 import {
   AppLayout,
@@ -120,21 +121,8 @@ const OriginalityCheckerScreen: React.FC = () => {
       }
 
       const asset = result.assets[0];
-      const response = await fetch(asset.uri);
-      const fileBlob = await response.blob();
-      const fileContentBase64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const dataUrl = typeof reader.result === 'string' ? reader.result : '';
-          const base64 = dataUrl.split(',')[1];
-          if (!base64) {
-            reject(new Error('File encoding failed.'));
-            return;
-          }
-          resolve(base64);
-        };
-        reader.onerror = () => reject(new Error('File encoding failed.'));
-        reader.readAsDataURL(fileBlob);
+      const fileContentBase64 = await FileSystem.readAsStringAsync(asset.uri, {
+        encoding: FileSystem.EncodingType.Base64,
       });
 
       const { data, error } = await supabase.functions.invoke('upload-to-storage', {
