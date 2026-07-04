@@ -74,6 +74,21 @@ Run Android:
 npx expo run:android
 ```
 
+Set up Android release signing:
+
+1. Put your real release keystore in `android/app/`, for example `android/app/capire-release.jks`.
+2. Copy `android/keystore.properties.example` to `android/keystore.properties`.
+3. Fill in:
+
+```properties
+RELEASE_STORE_FILE=capire-release.jks
+RELEASE_STORE_PASSWORD=your_store_password
+RELEASE_KEY_ALIAS=your_key_alias
+RELEASE_KEY_PASSWORD=your_key_password
+```
+
+`android/keystore.properties` is ignored by git, so your signing secrets stay local.
+
 Type-check:
 
 ```bash
@@ -102,4 +117,3 @@ Tester docs:
 ## Status
 
 This repository is in active development. The app is already usable for peer testing, but it is still moving toward a broader production release.
-
