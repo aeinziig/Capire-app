@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
 import Checkbox from 'expo-checkbox';
+import { makeRedirectUri } from 'expo-auth-session';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootParamList } from '@/navigation/types';
 import { supabase } from '@/services/supabase';
 import { mapAuthError } from '@/utils/supabase/supabaseErrorHandler';
-import { validateSpcbaEmail } from '@/utils/authValidation';
+import { getRoleFromEmail, validateSpcbaEmail } from '@/utils/authValidation';
 import {
   AuthLayout,
   WireframeButton,
@@ -19,6 +20,7 @@ type RegisterScreenNavigationProp = NativeStackNavigationProp<RootParamList>;
 const RegisterScreen: React.FC = () => {
   const navigation = useNavigation<RegisterScreenNavigationProp>();
   const wireframeColors = useWireframeTheme();
+  const redirectTo = makeRedirectUri({ scheme: 'capire', path: 'auth' });
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -27,11 +29,19 @@ const RegisterScreen: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const getPasswordError = (value: string) => {
+    if (value.length < 8 || !/[A-Z]/.test(value) || !/\d/.test(value) || !/[^A-Za-z0-9]/.test(value)) {
+      return 'Password must be at least 8 characters and include a capital letter, a number, and a symbol.';
+    }
+    return null;
+  };
+
   const handleRegister = async () => {
     if (!name.trim()) return setError('Please enter your full name');
     const emailError = validateSpcbaEmail(email);
     if (emailError) return setError(emailError);
-    if (password.length < 8) return setError('Password must be at least 8 characters');
+    const passwordError = getPasswordError(password);
+    if (passwordError) return setError(passwordError);
     if (password !== confirmPassword) return setError('Passwords do not match');
     if (!termsAccepted) return setError('Please accept the terms before continuing');
 
@@ -39,24 +49,28 @@ const RegisterScreen: React.FC = () => {
     setError(null);
 
     try {
-      const studentId = email.trim().split('@')[0];
+      const institutionalId = email.trim().split('@')[0];
+      const role = getRoleFromEmail(email) || 'student';
 
-      const { error: signUpError } = await supabase.auth.signUp({
+      const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
+          emailRedirectTo: redirectTo,
           data: {
             full_name: name,
             name,
-            role: 'student',
-            student_id: studentId,
-            id_number: studentId,
+            role,
+            student_id: institutionalId,
+            id_number: institutionalId,
           },
         },
       });
 
       if (signUpError) throw signUpError;
-      navigation.navigate('OTPVerification', { email: email.trim().toLowerCase() });
+      if (!data.session) {
+        navigation.navigate('Login');
+      }
     } catch (err: unknown) {
       setError(mapAuthError(err));
     } finally {
@@ -67,8 +81,8 @@ const RegisterScreen: React.FC = () => {
   return (
     <AuthLayout
       title="Create account"
-      subtitle="Set up your research profile and continue as a student account."
-      topNote="Step 1 of 3"
+      subtitle="Set up your account with your institutional email."
+      topNote="Step 1 of 1"
       footer={
         <TouchableOpacity onPress={() => navigation.navigate('Login')} activeOpacity={0.85}>
           <Text style={{ color: wireframeColors.accent, textAlign: 'center', fontSize: 14, fontWeight: '700' }}>
@@ -79,7 +93,7 @@ const RegisterScreen: React.FC = () => {
     >
       <View>
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
-          {[0, 1, 2].map((index) => (
+          {[0].map((index) => (
             <View
               key={index}
               style={{
@@ -186,7 +200,7 @@ const RegisterScreen: React.FC = () => {
         ) : null}
 
         <WireframeButton
-          label={loading ? 'Creating account...' : 'Continue to verification'}
+          label={loading ? 'Creating account...' : 'Create account'}
           onPress={handleRegister}
           disabled={loading}
           icon="arrow-right"

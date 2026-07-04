@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -10,7 +10,6 @@ import {
   AuthLayout,
   WireframeButton,
   WireframeCard,
-  WireframeInput,
   useWireframeTheme,
 } from '@/components/wireframe/Wireframe';
 
@@ -21,6 +20,7 @@ const OTPVerificationScreen: React.FC = () => {
   const route = useRoute();
   const wireframeColors = useWireframeTheme();
   const { email } = route.params as RootParamList['OTPVerification'];
+  const otpInputRef = useRef<TextInput | null>(null);
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,44 +117,54 @@ const OTPVerificationScreen: React.FC = () => {
           We sent a one-time password to {email}. Please enter it below to continue.
         </Text>
 
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 }}>
-          {otpSlots.map((digit, index) => (
-            <View
-              key={index}
-              style={{
-                width: 44,
-                height: 56,
-                borderRadius: 16,
-                borderWidth: 1,
-                borderColor: digit ? wireframeColors.accent : wireframeColors.line,
-                backgroundColor: '#FAFCFA',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Text style={{ color: wireframeColors.text, fontSize: 18, fontWeight: '800' }}>{digit || '•'}</Text>
-            </View>
-          ))}
-        </View>
+        <TouchableOpacity activeOpacity={1} onPress={() => otpInputRef.current?.focus()} style={{ marginBottom: 16 }}>
+          <TextInput
+            ref={otpInputRef}
+            value={otp}
+            onChangeText={(value) => {
+              const numeric = value.replace(/\D/g, '').slice(0, 6);
+              setOtp(numeric);
+              if (error) setError(null);
+            }}
+            keyboardType="number-pad"
+            maxLength={6}
+            autoFocus
+            caretHidden
+            style={{
+              position: 'absolute',
+              opacity: 0,
+              width: 1,
+              height: 1,
+            }}
+          />
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            {otpSlots.map((digit, index) => (
+              <View
+                key={index}
+                style={{
+                  width: 44,
+                  height: 56,
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: digit ? wireframeColors.accent : wireframeColors.line,
+                  backgroundColor: '#FAFCFA',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text style={{ color: '#183126', fontSize: 18, fontWeight: '800' }}>{digit || ''}</Text>
+              </View>
+            ))}
+          </View>
+        </TouchableOpacity>
 
-        <WireframeInput
-          label="Enter 6-digit code"
-          icon="hash"
-          value={otp}
-          onChangeText={(value) => {
-            const numeric = value.replace(/\D/g, '').slice(0, 6);
-            setOtp(numeric);
-            if (error) setError(null);
-          }}
-          keyboardType="number-pad"
-          maxLength={6}
-          placeholder="123456"
-          error={error}
-        />
+        {error ? (
+          <Text style={{ color: wireframeColors.danger, fontSize: 13, marginBottom: 16 }}>{error}</Text>
+        ) : null}
 
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <Text style={{ color: wireframeColors.muted, fontSize: 12 }}>
-            {resendTimer > 0 ? `Resend in 00:${String(resendTimer).padStart(2, '0')}` : 'Didn’t get the code?'}
+            {resendTimer > 0 ? `Resend in 00:${String(resendTimer).padStart(2, '0')}` : "Didn't get the code?"}
           </Text>
           <TouchableOpacity onPress={() => void handleResendCode()} disabled={resendTimer > 0 || loading} activeOpacity={0.85}>
             <Text style={{ color: resendTimer > 0 ? '#96AAA0' : wireframeColors.accent, fontSize: 12, fontWeight: '700' }}>
