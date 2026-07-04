@@ -2,8 +2,9 @@ import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import CitationBottomSheet from '../shared/CitationBottomSheet';
+import { log } from '@/utils/logger';
 import {
   AppLayout,
   HeaderIconButton,
@@ -37,6 +38,30 @@ type OriginalityCheckerState =
 type HighlightSegment = {
   text: string;
   highlighted: boolean;
+};
+
+const resolveUploadUri = async (asset: DocumentPicker.DocumentPickerAsset) => {
+  const fallbackName = asset.name || `originality-upload-${Date.now()}`;
+  const directInfo = await FileSystem.getInfoAsync(asset.uri);
+
+  if (directInfo.exists && asset.uri.startsWith('file://')) {
+    return { uri: asset.uri, name: fallbackName };
+  }
+
+  const safeFileName = fallbackName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const cacheUri = `${FileSystem.cacheDirectory}${Date.now()}-${safeFileName}`;
+
+  await FileSystem.copyAsync({
+    from: asset.uri,
+    to: cacheUri,
+  });
+
+  const copiedInfo = await FileSystem.getInfoAsync(cacheUri);
+  if (!copiedInfo.exists) {
+    throw new Error('The selected file could not be copied for upload.');
+  }
+
+  return { uri: cacheUri, name: fallbackName };
 };
 
 const buildHighlightedSegments = (text: string, phrases: string[]): HighlightSegment[] => {
@@ -121,14 +146,15 @@ const OriginalityCheckerScreen: React.FC = () => {
       }
 
       const asset = result.assets[0];
-      const fileContentBase64 = await FileSystem.readAsStringAsync(asset.uri, {
+      const uploadFile = await resolveUploadUri(asset);
+      const fileContentBase64 = await FileSystem.readAsStringAsync(uploadFile.uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
 
       const { data, error } = await supabase.functions.invoke('upload-to-storage', {
         body: {
           fileContentBase64,
-          fileName: asset.name,
+          fileName: uploadFile.name,
           userId: session.user.id,
           bucket: 'originality-checks',
         },
@@ -138,14 +164,16 @@ const OriginalityCheckerScreen: React.FC = () => {
         throw error || new Error('File upload failed.');
       }
 
-      setFileName(asset.name);
+      setFileName(uploadFile.name);
       setFilePath(data.storagePath);
       setInputText('');
       setState({ type: 'IDLE' });
-    } catch {
+    } catch (error) {
+      log.error('Failed to upload originality-checker file', error);
+      const message = error instanceof Error ? error.message : 'The file could not be uploaded. Please try again.';
       setFileName(null);
       setFilePath(null);
-      setState({ type: 'ERROR', message: 'The file could not be uploaded. Please try again.' });
+      setState({ type: 'ERROR', message });
     }
   }, []);
 
