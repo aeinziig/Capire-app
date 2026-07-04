@@ -2,6 +2,8 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 // @ts-ignore
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+// @ts-ignore
+import { unzlibSync } from 'https://esm.sh/fflate@0.8.2'
 import { rateLimitMiddleware } from '../middleware/rateLimiter.ts'
 
 // @ts-ignore
@@ -144,7 +146,7 @@ async function resolveContentToCheck(text?: string, filePath?: string): Promise<
   }
 
   if (extension === 'pdf') {
-    return extractPdfText(await fileData.arrayBuffer()).trim()
+    return (await extractPdfText(await fileData.arrayBuffer())).trim()
   }
 
   throw new Error('Only TXT and text-based PDF files are supported for originality checks right now.')
@@ -309,17 +311,199 @@ function normalizedIncludes(left: string, right: string) {
   return Boolean(normalizedRight) && normalizeText(left).includes(normalizedRight)
 }
 
-function extractPdfText(buffer: ArrayBuffer) {
-  const content = new TextDecoder('latin1').decode(buffer)
-  const literalMatches = [...content.matchAll(/\(([^()]*)\)\s*Tj/g)].map((match) => decodePdfString(match[1]))
-  const arrayMatches = [...content.matchAll(/\[(.*?)\]\s*TJ/g)].flatMap((match) =>
-    [...match[1].matchAll(/\(([^()]*)\)/g)].map((part) => decodePdfString(part[1]))
-  )
+async function extractPdfText(buffer: ArrayBuffer) {
+  return extractPdfTextFallback(buffer)
+}
 
-  return [...literalMatches, ...arrayMatches]
+async function extractPdfTextFallback(buffer: ArrayBuffer) {
+  const binary = new Uint8Array(buffer)
+  const rawContent = new TextDecoder('latin1').decode(binary)
+  const decodedStreams = await extractInflatedPdfStreams(binary)
+  const candidateContents = [rawContent, ...decodedStreams]
+  const fontMaps = extractFontUnicodeMaps(rawContent)
+
+  const extracted = candidateContents.flatMap((content) => extractTextOperators(content, fontMaps))
+
+  return extracted
     .join(' ')
+    .replace(/[\u0000-\u001f]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+async function extractInflatedPdfStreams(binary: Uint8Array) {
+  const streamMarker = new TextEncoder().encode('stream')
+  const endStreamMarker = new TextEncoder().encode('endstream')
+  const contents: string[] = []
+  let cursor = 0
+
+  while (cursor < binary.length) {
+    const streamStart = indexOfBytes(binary, streamMarker, cursor)
+    if (streamStart === -1) {
+      break
+    }
+
+    let dataStart = streamStart + streamMarker.length
+    if (binary[dataStart] === 0x0d && binary[dataStart + 1] === 0x0a) {
+      dataStart += 2
+    } else if (binary[dataStart] === 0x0a || binary[dataStart] === 0x0d) {
+      dataStart += 1
+    }
+
+    const streamEnd = indexOfBytes(binary, endStreamMarker, dataStart)
+    if (streamEnd === -1) {
+      break
+    }
+
+    const streamBytes = binary.slice(dataStart, streamEnd)
+    const inflatedText = await inflatePdfStream(streamBytes)
+    if (inflatedText?.trim()) {
+      contents.push(inflatedText)
+    }
+
+    cursor = streamEnd + endStreamMarker.length
+  }
+
+  return contents
+}
+
+async function inflatePdfStream(streamBytes: Uint8Array) {
+  try {
+    return new TextDecoder('latin1').decode(unzlibSync(streamBytes))
+  } catch {
+    // Fall through to native attempts.
+  }
+
+  for (const format of ['deflate', 'deflate-raw'] as const) {
+    try {
+      const decompressedStream = new Blob([streamBytes]).stream().pipeThrough(new DecompressionStream(format))
+      const inflated = await new Response(decompressedStream).arrayBuffer()
+      return new TextDecoder('latin1').decode(new Uint8Array(inflated))
+    } catch {
+      // Try the next format.
+    }
+  }
+
+  return null
+}
+
+function extractFontUnicodeMaps(content: string) {
+  const fontRefs = new Map<string, string>()
+  const objectToUnicode = new Map<string, string>()
+  const unicodeMaps = new Map<string, Map<string, string>>()
+
+  for (const match of content.matchAll(/\/(F\d+)\s+(\d+)\s+(\d+)\s+R/g)) {
+    fontRefs.set(match[1], `${match[2]} ${match[3]}`)
+  }
+
+  for (const match of content.matchAll(/(\d+)\s+(\d+)\s+obj([\s\S]*?)endobj/g)) {
+    const objectKey = `${match[1]} ${match[2]}`
+    const body = match[3]
+    const toUnicodeMatch = body.match(/\/ToUnicode\s+(\d+)\s+(\d+)\s+R/)
+    if (toUnicodeMatch) {
+      objectToUnicode.set(objectKey, `${toUnicodeMatch[1]} ${toUnicodeMatch[2]}`)
+    }
+
+    if (body.includes('beginbfchar')) {
+      unicodeMaps.set(objectKey, parseUnicodeCMap(body))
+    }
+  }
+
+  const fontMaps = new Map<string, Map<string, string>>()
+  fontRefs.forEach((fontObjectKey, fontName) => {
+    const unicodeObjectKey = objectToUnicode.get(fontObjectKey)
+    const unicodeMap = unicodeObjectKey ? unicodeMaps.get(unicodeObjectKey) : undefined
+    if (unicodeMap?.size) {
+      fontMaps.set(fontName, unicodeMap)
+    }
+  })
+
+  return fontMaps
+}
+
+function parseUnicodeCMap(content: string) {
+  const unicodeMap = new Map<string, string>()
+
+  for (const section of content.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
+    for (const match of section[1].matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g)) {
+      unicodeMap.set(match[1].toUpperCase(), decodeUtf16Hex(match[2]))
+    }
+  }
+
+  for (const section of content.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
+    for (const match of section[1].matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g)) {
+      const start = parseInt(match[1], 16)
+      const end = parseInt(match[2], 16)
+      let current = parseInt(match[3], 16)
+
+      for (let code = start; code <= end; code += 1) {
+        unicodeMap.set(code.toString(16).toUpperCase().padStart(match[1].length, '0'), decodeUtf16Hex(current.toString(16)))
+        current += 1
+      }
+    }
+  }
+
+  return unicodeMap
+}
+
+function extractTextOperators(content: string, fontMaps: Map<string, Map<string, string>>) {
+  const extracted: string[] = []
+  const tokenPattern = /\/(F\d+)\s+[\d.]+\s+Tf|\[(.*?)\]\s*TJ|<([0-9A-Fa-f]+)>\s*Tj|\(([^()]*)\)\s*Tj/gs
+  let currentFont: Map<string, string> | undefined
+
+  for (const match of content.matchAll(tokenPattern)) {
+    if (match[1]) {
+      currentFont = fontMaps.get(match[1])
+      continue
+    }
+
+    if (match[2] !== undefined) {
+      const parts = [
+        ...match[2].matchAll(/<([0-9A-Fa-f]+)>|\(([^()]*)\)/g),
+      ].map((part) => {
+        if (part[1]) {
+          return decodeHexGlyphText(part[1], currentFont)
+        }
+        return decodePdfString(part[2] || '')
+      })
+      const joined = parts.join('')
+      if (joined.trim()) {
+        extracted.push(joined)
+      }
+      continue
+    }
+
+    if (match[3]) {
+      const decoded = decodeHexGlyphText(match[3], currentFont)
+      if (decoded.trim()) {
+        extracted.push(decoded)
+      }
+      continue
+    }
+
+    if (match[4]) {
+      const decoded = decodePdfString(match[4])
+      if (decoded.trim()) {
+        extracted.push(decoded)
+      }
+    }
+  }
+
+  return extracted
+}
+
+function indexOfBytes(source: Uint8Array, pattern: Uint8Array, fromIndex: number) {
+  outer: for (let index = fromIndex; index <= source.length - pattern.length; index += 1) {
+    for (let offset = 0; offset < pattern.length; offset += 1) {
+      if (source[index + offset] !== pattern[offset]) {
+        continue outer
+      }
+    }
+
+    return index
+  }
+
+  return -1
 }
 
 function decodePdfString(value: string) {
@@ -327,4 +511,45 @@ function decodePdfString(value: string) {
     .replace(/\\\)/g, ')')
     .replace(/\\\(/g, '(')
     .replace(/\\\\/g, '\\')
+}
+
+function decodeHexGlyphText(value: string, glyphMap?: Map<string, string>) {
+  if (glyphMap?.size) {
+    const glyphWidth = inferGlyphWidth(glyphMap)
+    const decoded = chunkHex(value, glyphWidth)
+      .map((chunk) => glyphMap.get(chunk.toUpperCase()) || '')
+      .join('')
+    if (decoded.trim()) {
+      return decoded
+    }
+  }
+
+  return decodeUtf16Hex(value)
+}
+
+function inferGlyphWidth(glyphMap: Map<string, string>) {
+  const firstKey = glyphMap.keys().next().value
+  return typeof firstKey === 'string' ? firstKey.length : 4
+}
+
+function chunkHex(value: string, chunkSize: number) {
+  const chunks: string[] = []
+  for (let index = 0; index < value.length; index += chunkSize) {
+    chunks.push(value.slice(index, index + chunkSize))
+  }
+  return chunks
+}
+
+function decodeUtf16Hex(value: string) {
+  const normalized = value.length % 4 === 0 ? value : value.padStart(value.length + (4 - (value.length % 4)), '0')
+  const chars: string[] = []
+
+  for (const chunk of chunkHex(normalized, 4)) {
+    const codePoint = parseInt(chunk, 16)
+    if (!Number.isNaN(codePoint)) {
+      chars.push(String.fromCharCode(codePoint))
+    }
+  }
+
+  return chars.join('')
 }
