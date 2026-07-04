@@ -19,6 +19,7 @@ import TopicReviewScreen from '@/screens/faculty/TopicReviewScreen';
 import ChatbotScreen from '@/screens/shared/ChatbotScreen';
 import MessagesScreen from '@/screens/shared/MessagesScreen';
 import OwnProfileScreen from '@/screens/shared/OwnProfileScreen';
+import { getRoleFromEmail } from '@/utils/authValidation';
 
 const Tab = createBottomTabNavigator<TabParamList>();
 
@@ -27,7 +28,7 @@ const MainTabs: React.FC = () => {
   const { user } = useAuth();
   const { resolvedTheme, unreadMessageCount } = useApp();
   const insets = useSafeAreaInsets();
-  const role = (user?.user_metadata?.role || user?.app_metadata?.role || 'student') as string;
+  const role = (user?.user_metadata?.role || user?.app_metadata?.role || getRoleFromEmail(user?.email || '') || 'student') as string;
   const tabBarHeight = 72 + insets.bottom;
   const tabBarBottomOffset = 16 + insets.bottom;
   const tabBarClearance = tabBarHeight + tabBarBottomOffset + 16;
