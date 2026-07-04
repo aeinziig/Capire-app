@@ -143,8 +143,8 @@ const TopicReviewScreen: React.FC = () => {
               ['Revision', stats.needs_revision],
               ['Rejected', stats.rejected],
             ].map(([label, value]) => (
-              <View key={String(label)} style={{ width: '48%' }}>
-                <WireframeCard>
+              <View key={String(label)} style={{ flexBasis: '48%', flexGrow: 1, minWidth: 150 }}>
+                <WireframeCard style={{ minHeight: 96, justifyContent: 'space-between' }}>
                   <Text style={{ color: wireframeColors.muted, fontSize: 12 }}>{label}</Text>
                   <Text style={{ color: wireframeColors.text, fontSize: 24, fontWeight: '800', marginTop: 8 }}>{value}</Text>
                 </WireframeCard>
@@ -172,8 +172,14 @@ const TopicReviewScreen: React.FC = () => {
           ) : null}
 
           {filteredTopics.length === 0 ? (
-            <WireframeCard>
-              <Text style={{ color: wireframeColors.muted, fontSize: 13 }}>No topics match this filter.</Text>
+            <WireframeCard style={{ minHeight: 220, alignItems: 'center', justifyContent: 'center' }}>
+              <Feather name="inbox" size={28} color={wireframeColors.muted} />
+              <Text style={{ color: wireframeColors.text, fontSize: 15, fontWeight: '700', marginTop: 14 }}>
+                No topics yet
+              </Text>
+              <Text style={{ color: wireframeColors.muted, fontSize: 13, marginTop: 6, textAlign: 'center' }}>
+                {filter === 'all' ? 'Submitted topics will appear here for faculty review.' : 'No topics match this filter.'}
+              </Text>
             </WireframeCard>
           ) : (
             filteredTopics.map((topic) => (

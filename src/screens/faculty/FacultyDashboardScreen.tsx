@@ -97,8 +97,8 @@ const FacultyDashboardScreen: React.FC = () => {
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
         {statusCards.map((card) => (
-          <View key={card.key} style={{ width: '48%' }}>
-            <WireframeCard>
+          <View key={card.key} style={{ flexBasis: '48%', flexGrow: 1, minWidth: 150 }}>
+            <WireframeCard style={{ minHeight: 152 }}>
               <View
                 style={{
                   width: 48,
