@@ -1,5 +1,7 @@
 import { supabase } from '@/services/supabase';
 
+type SupabaseRecord = Record<string, unknown>;
+
 export const supabaseHelpers = {
   // Text search with automatic ranking
   textSearch: (table: string, columns: string | string[], query: string) => {
@@ -12,7 +14,7 @@ export const supabaseHelpers = {
   },
 
   // Get related data with automatic joining
-  getRelated: <T>(table: string, id: string, relations: string[]) => {
+  getRelated: (table: string, id: string, relations: string[]) => {
     let query = supabase.from(table).select('*').eq('id', id).single();
 
     // Add relations if specified
@@ -25,13 +27,11 @@ export const supabaseHelpers = {
   },
 
   // Insert or update (upsert)
-  upsert: <T>(table: string, data: T, options: { onConflict?: string } = {}) => {
-    let query = supabase.from(table).upsert(data);
-
-    if (options.onConflict) {
-      query = query.onConflict(options.onConflict);
-    }
-
-    return query;
+  upsert: <T extends SupabaseRecord>(
+    table: string,
+    data: T | T[],
+    options?: { onConflict?: string; ignoreDuplicates?: boolean }
+  ) => {
+    return supabase.from(table).upsert(data as any, options);
   }
 };

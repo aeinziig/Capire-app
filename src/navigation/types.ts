@@ -1,34 +1,32 @@
-export type RootParamList = {
+import type { NavigatorScreenParams } from '@react-navigation/native';
+
+export type RootStackParamList = {
   Splash: undefined;
   Login: undefined;
   Register: undefined;
   ForgotPassword: undefined;
-  OTPVerification: undefined;
-  MainTabs: undefined;
+  OTPVerification: { email: string };
+  LegalDocument: { document: 'terms' | 'privacy' };
+  MainTabs: NavigatorScreenParams<TabParamList> | undefined;
+  CapstoneDetail: { capstoneId: string };
+  ChatConversation: { partnerId: string; partnerName: string };
+  OtherUserProfile: { userId: string };
+  Notifications: undefined;
+  SubmitTopic: undefined;
+  Settings: undefined;
+};
+
+export type TabParamList = {
   Dashboard: undefined;
+  FacultyDashboard: undefined;
   Search: undefined;
-  CapstoneDetail: { capstoneId: number };
   OriginalityChecker: undefined;
   Bookmarks: undefined;
+  SubmitTopic: undefined;
   TopicReview: undefined;
   Chatbot: undefined;
   Messages: undefined;
-  ChatConversation: { conversation: { id: string; name: string; avatar?: string } };
-  OwnProfile: undefined;
-  OtherUserProfile: { userId: string };
-  CitationBottomSheet: { sourceData: {
-    type: string;
-    title: string;
-    author?: string;
-    year?: string;
-    journal?: string;
-    volume?: string;
-    issue?: string;
-    pages?: string;
-    publisher?: string;
-    url?: string;
-    doi?: string;
-    institution?: string;
-    conference?: string;
-  } };
+  Profile: undefined;
 };
+
+export type RootParamList = RootStackParamList;

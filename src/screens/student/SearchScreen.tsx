@@ -1,318 +1,306 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, FlatList, Image } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { isSupabaseConfigured, supabase } from '@/services/supabase';
+import type { RootParamList } from '@/navigation/types';
+import { mapAuthError } from '@/utils/supabase/supabaseErrorHandler';
+import {
+  AppLayout,
+  HeaderIconButton,
+  WireframeCard,
+  WireframePill,
+  useWireframeTheme,
+} from '@/components/wireframe/Wireframe';
 
 type CapstoneItem = {
-  id: number;
+  id: string;
   title: string;
   author: string;
   department: string;
   year: string;
-  originalityScore: number;
-  imageUrl?: string;
+  originalityScore: number | null;
+  abstract?: string;
 };
 
+const departments = ['All', 'Computer Science', 'Urban Planning', 'Political Science', 'Engineering', 'Business'];
+const years = ['All', '2025', '2024', '2023', '2022'];
+const loadingCards = [1, 2, 3];
+
 const SearchScreen: React.FC = () => {
+  const navigation = useNavigation<NativeStackNavigationProp<RootParamList>>();
+  const wireframeColors = useWireframeTheme();
   const [searchQuery, setSearchQuery] = useState('');
-  const [filters, setFilters] = useState({
-    department: 'All',
-    year: 'All',
-    sortBy: 'recent' // recent, relevance, originality
-  });
-  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState({ department: 'All', year: 'All' });
+  const [capstones, setCapstones] = useState<CapstoneItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hasActiveFilters = Boolean(searchQuery.trim()) || filters.department !== 'All' || filters.year !== 'All';
 
-  // Mock data - in real app this would come from Supabase
-  const allCapstones: CapstoneItem[] = [
-    {
-      id: 1,
-      title: 'AI Applications in Early Cancer Detection',
-      author: 'Alex Johnson',
-      department: 'Computer Science',
-      year: '2023',
-      originalityScore: 88,
-      imageUrl: 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1f?w=400'
-    },
-    {
-      id: 2,
-      title: 'Sustainable Urban Planning for Growing Cities',
-      author: 'Maria Garcia',
-      department: 'Urban Planning',
-      year: '2023',
-      originalityScore: 92,
-      imageUrl: 'https://images.unsplash.com/photo-1486401899868-a9c40aa2538e?w=400'
-    },
-    {
-      id: 3,
-      title: 'Blockchain Technology for Secure Voting Systems',
-      author: 'David Kim',
-      department: 'Political Science',
-      year: '2022',
-      originalityScore: 76,
-      imageUrl: 'https://images.unsplash.com/photo-1550751826-4bb2a3c335ea?w=400'
-    },
-    {
-      id: 4,
-      title: 'Machine Learning for Climate Change Prediction',
-      author: 'Sarah Chen',
-      department: 'Environmental Science',
-      year: '2023',
-      originalityScore: 91,
-      imageUrl: 'https://images.unsplash.com/photo-1450177040553-1d09576b8bbb?w=400'
-    },
-    {
-      id: 5,
-      title: 'Augmented Reality in Medical Education',
-      author: 'James Wilson',
-      department: 'Medicine',
-      year: '2022',
-      originalityScore: 85,
-      imageUrl: 'https://images.unsplash.com/photo-1576091160550-2392d14470b9?w=400'
+  useEffect(() => {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => {
+      const term = searchQuery.trim();
+      if (!term) return;
+      setRecentSearches((current) => [term, ...current.filter((item) => item.toLowerCase() !== term.toLowerCase())].slice(0, 5));
+    }, 400);
+
+    return () => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    };
+  }, [searchQuery]);
+
+  const fetchCapstones = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      if (!isSupabaseConfigured) {
+        setCapstones([]);
+        return;
+      }
+
+      let query = supabase
+        .from('capstone_projects')
+        .select('id, title, author, department, year, originalityScore, abstract');
+
+      if (searchQuery.trim()) {
+        query = query.or(`title.ilike.%${searchQuery.trim()}%,abstract.ilike.%${searchQuery.trim()}%`);
+      }
+
+      if (filters.department !== 'All') query = query.eq('department', filters.department);
+      if (filters.year !== 'All') query = query.eq('year', Number(filters.year));
+
+      const { data, error: queryError } = await query.order('year', { ascending: false });
+      if (queryError) throw queryError;
+      setCapstones(
+        (((data as Array<Record<string, unknown>> | null) || []).map((item) => ({
+          id: String(item.id || ''),
+          title: String(item.title || ''),
+          author: String(item.author || ''),
+          department: String(item.department || ''),
+          year: String(item.year || ''),
+          originalityScore: typeof item.originalityScore === 'number' ? item.originalityScore : null,
+          abstract: typeof item.abstract === 'string' ? item.abstract : undefined,
+        })))
+      );
+    } catch (err: unknown) {
+      setError(mapAuthError(err));
+      setCapstones([]);
+    } finally {
+      setLoading(false);
     }
-  ];
+  }, [filters.department, filters.year, searchQuery]);
 
-  // Filter capstones based on search and filters
-  const filteredCapstones = allCapstones.filter(capstone => {
-    const matchesSearch =
-      capstone.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      capstone.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      capstone.department.toLowerCase().includes(searchQuery.toLowerCase());
-
-    const matchesDepartment =
-      filters.department === 'All' ||
-      capstone.department === filters.department;
-
-    const matchesYear =
-      filters.year === 'All' ||
-      capstone.year === filters.year;
-
-    return matchesSearch && matchesDepartment && matchesYear;
-  });
-
-  // Sort capstones
-  const sortedCapstones = [...filteredCapstones].sort((a, b) => {
-    switch (filters.sortBy) {
-      case 'recent':
-        return parseInt(b.year) - parseInt(a.year);
-      case 'originality':
-        return b.originalityScore - a.originalityScore;
-      case 'relevance':
-      default:
-        return 0; // Keep original order for relevance (simplified)
-    }
-  });
-
-  const departments = [
-    'All',
-    'Computer Science',
-    'Urban Planning',
-    'Political Science',
-    'Environmental Science',
-    'Medicine',
-    'Engineering',
-    'Business',
-    'Psychology'
-  ];
-
-  const years = [
-    'All',
-    '2023',
-    '2022',
-    '2021',
-    '2020'
-  ];
-
-  const handlePressCapstone = (capstone: CapstoneItem) => {
-    // Navigate to capstone detail screen
-    // In real app: navigation.navigate('CapstoneDetail', { capstoneId: capstone.id })
-    console.log('Navigate to capstone detail:', capstone.id);
-  };
+  useEffect(() => {
+    fetchCapstones();
+  }, [fetchCapstones]);
 
   return (
-    <View className="flex-1 bg-white">
-      <View className="p-4">
-        {/* Search Bar */}
-        <View className="flex items-center space-x-3 mb-4 bg-gray-50 p-3 rounded-lg">
-          <Feather name="search" size={20} className="text-gray-400" />
+    <AppLayout
+      title="Search archive"
+      subtitle="Explore capstone studies, filter by department, and jump into promising ideas."
+      headerRight={<HeaderIconButton icon="refresh-cw" onPress={() => void fetchCapstones()} />}
+    >
+      <WireframeCard style={{ marginBottom: 16 }}>
+        <View
+          style={{
+            minHeight: 56,
+            borderRadius: 18,
+            backgroundColor: wireframeColors.inputBg,
+            borderWidth: 1,
+            borderColor: wireframeColors.line,
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingHorizontal: 16,
+          }}
+        >
+          <Feather name="search" size={18} color={wireframeColors.muted} />
           <TextInput
-            placeholder="Search capstones..."
             value={searchQuery}
             onChangeText={setSearchQuery}
-            className="flex-1 bg-white border border-gray-300 rounded-lg p-2 focus:border-primary-500 focus:ring-2 focus:ring-primary-200"
+            placeholder="Search titles, abstracts, or keywords"
+            placeholderTextColor={wireframeColors.placeholder}
+            style={{ flex: 1, color: wireframeColors.text, marginLeft: 10, fontSize: 14 }}
           />
-          <TouchableOpacity
-            onPress={() => setShowFilters(!showFilters)}
-            className="p-2"
-          >
-            <Feather name="sliders" size={20} className="text-gray-500" />
-          </TouchableOpacity>
+          {searchQuery ? (
+            <TouchableOpacity onPress={() => setSearchQuery('')} activeOpacity={0.85}>
+              <Feather name="x" size={18} color={wireframeColors.muted} />
+            </TouchableOpacity>
+          ) : null}
         </View>
+        <Text style={{ color: wireframeColors.muted, fontSize: 12, marginTop: 12 }}>
+          Try research areas like AI, mobile systems, records management, or healthcare.
+        </Text>
+      </WireframeCard>
 
-        {/* Filters Panel */}
-        {showFilters && (
-          <View className="mb-4 p-4 bg-gray-50 rounded-lg">
-            <Text className="font-medium text-gray-700 mb-3">
-              Filters
-            </Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          {departments.map((department) => (
+            <WireframePill
+              key={department}
+              label={department}
+              active={filters.department === department}
+              onPress={() => setFilters((current) => ({ ...current, department }))}
+            />
+          ))}
+        </View>
+      </ScrollView>
 
-            <View className="space-y-3">
-              {/* Department Filter */}
-              <View>
-                <Text className="text-sm font-medium text-gray-700 mb-1">
-                  Department
-                </Text>
-                <View className="border border-gray-300 rounded-lg p-2">
-                  {departments.map((dept, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      activeOpacity={0.7}
-                      onPress={() => setFilters(prev => ({...prev, department: dept}))}
-                      className={`p-2 ${filters.department === dept
-                        ? 'bg-primary-50 text-primary-600'
-                        : 'bg-white text-gray-700'
-                      } rounded-lg`}
-                    >
-                      <Text className="text-sm">{dept}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          {years.map((year) => (
+            <WireframePill
+              key={year}
+              label={year}
+              active={filters.year === year}
+              onPress={() => setFilters((current) => ({ ...current, year }))}
+            />
+          ))}
+        </View>
+      </ScrollView>
 
-              {/* Year Filter */}
-              <View>
-                <Text className="text-sm font-medium text-gray-700 mb-1">
-                  Year
-                </Text>
-                <View className="border border-gray-300 rounded-lg p-2">
-                  {years.map((year, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      activeOpacity={0.7}
-                      onPress={() => setFilters(prev => ({...prev, year: year}))}
-                      className={`p-2 ${filters.year === year
-                        ? 'bg-primary-50 text-primary-600'
-                        : 'bg-white text-gray-700'
-                      } rounded-lg`}
-                    >
-                      <Text className="text-sm">{year}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {/* Sort By Filter */}
-              <View>
-                <Text className="text-sm font-medium text-gray-700 mb-1">
-                  Sort By
-                </Text>
-                <View className="border border-gray-300 rounded-lg p-2">
-                  <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={() => setFilters(prev => ({...prev, sortBy: 'recent'}))}
-                    className={`p-2 ${filters.sortBy === 'recent'
-                      ? 'bg-primary-50 text-primary-600'
-                      : 'bg-white text-gray-700'
-                    } rounded-lg`}
-                  >
-                    <Text className="text-sm">Recent</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={() => setFilters(prev => ({...prev, sortBy: 'originality'}))}
-                    className={`p-2 ${filters.sortBy === 'originality'
-                      ? 'bg-primary-50 text-primary-600'
-                      : 'bg-white text-gray-700'
-                    } rounded-lg`}
-                  >
-                    <Text className="text-sm">Originality</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={() => setFilters(prev => ({...prev, sortBy: 'relevance'}))}
-                    className={`p-2 ${filters.sortBy === 'relevance'
-                      ? 'bg-primary-50 text-primary-600'
-                      : 'bg-white text-gray-700'
-                    } rounded-lg`}
-                  >
-                    <Text className="text-sm">Relevance</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
+      {recentSearches.length > 0 ? (
+        <WireframeCard style={{ marginBottom: 16 }}>
+          <Text style={{ color: wireframeColors.text, fontSize: 16, fontWeight: '800', marginBottom: 10 }}>Recent searches</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {recentSearches.map((item) => (
+              <WireframePill key={item} label={item} onPress={() => setSearchQuery(item)} />
+            ))}
           </View>
-        )}
+        </WireframeCard>
+      ) : null}
 
-        {/* Results Count */}
-        <View className="mb-4">
-          <Text className="text-sm text-gray-500">
-            {sortedCapstones.length} results found
+      {error ? (
+        <WireframeCard style={{ marginBottom: 16 }}>
+          <Text style={{ color: wireframeColors.danger, fontSize: 13 }}>{error}</Text>
+        </WireframeCard>
+      ) : null}
+
+      <WireframeCard>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <Text style={{ color: wireframeColors.text, fontSize: 18, fontWeight: '800' }}>
+            Results {loading ? '' : `(${capstones.length})`}
           </Text>
+          {loading ? <ActivityIndicator color={wireframeColors.accent} /> : null}
         </View>
 
-        {/* Results List */}
-        <ScrollView>
-          {sortedCapstones.length === 0 ? (
-            <View className="p-8 items-center justify-center">
-              <Feather name="search" size={48} className="text-gray-300 mb-4" />
-              <Text className="text-gray-500 text-center">
-                No capstones found matching your search
-              </Text>
-            </View>
-          ) : (
-            <View className="space-y-4">
-              {sortedCapstones.map((capstone, index) => (
-                <TouchableOpacity
-                  key={index}
-                  onPress={() => handlePressCapstone(capstone)}
-                  activeOpacity={0.7}
-                  className="p-4 bg-white border border-gray-200 rounded-lg"
-                >
-                  <View className="flex items-start space-x-4">
-                    {/* Capstone Image */}
-                    {capstone.imageUrl && (
-                      <View className="w-16 h-16 rounded-lg overflow-hidden">
-                        {/* In real app, would use Image component */}
-                        <View className="w-full h-full bg-gray-200 flex items-center justify-center">
-                          <Feather name="book" size={16} className="text-gray-400" />
-                        </View>
-                      </View>
-                    )}
-
-                    {/* Capstone Details */}
-                    <View className="flex-1">
-                      <Text className="font-medium text-gray-800">
-                        {capstone.title}
-                      </Text>
-                      <View className="flex items-center space-x-2 mt-1">
-                        <Text className="text-sm text-gray-500">
-                          {capstone.author} • {capstone.department} • {capstone.year}
-                        </Text>
-                      </View>
-                      <View className="mt-2">
-                        <Text className="text-sm font-medium text-gray-700">
-                          Originality Score:
-                        </Text>
-                        <View className="flex items-center space-x-2">
-                          <View className={`w-3 h-3 rounded-full ${
-                            capstone.originalityScore >= 90
-                              ? 'bg-green-500'
-                              : capstone.originalityScore >= 75
-                                ? 'bg-yellow-500'
-                                : 'bg-red-500'
-                          }`} />
-                          <Text className="text-sm font-medium text-gray-600">
-                            {capstone.originalityScore}%
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
+        {loading ? (
+          <View style={{ minHeight: 320 }}>
+            {loadingCards.map((card) => (
+              <View
+                key={card}
+                style={{
+                  borderRadius: 18,
+                  borderWidth: 1,
+                  borderColor: wireframeColors.line,
+                  backgroundColor: wireframeColors.inputBg,
+                  padding: 14,
+                  marginBottom: 10,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flex: 1, paddingRight: 12 }}>
+                    <View style={{ height: 16, borderRadius: 999, backgroundColor: wireframeColors.line, marginBottom: 8, width: '82%' }} />
+                    <View style={{ height: 12, borderRadius: 999, backgroundColor: wireframeColors.line, width: '54%' }} />
                   </View>
-                </TouchableOpacity>
-              ))}
+                  <View style={{ width: 56, height: 28, borderRadius: 999, backgroundColor: wireframeColors.line }} />
+                </View>
+                <View style={{ height: 12, borderRadius: 999, backgroundColor: wireframeColors.line, marginTop: 14, width: '100%' }} />
+                <View style={{ height: 12, borderRadius: 999, backgroundColor: wireframeColors.line, marginTop: 8, width: '88%' }} />
+              </View>
+            ))}
+            <Text style={{ color: wireframeColors.muted, fontSize: 13, textAlign: 'center', marginTop: 6 }}>
+              Loading capstones...
+            </Text>
+          </View>
+        ) : capstones.length === 0 ? (
+          <View
+            style={{
+              minHeight: 220,
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingHorizontal: 18,
+            }}
+          >
+            <View
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: 28,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: wireframeColors.accentSoft,
+                marginBottom: 14,
+              }}
+            >
+              <Feather name="search" size={22} color={wireframeColors.accent} />
             </View>
-          )}
-        </ScrollView>
-      </View>
-    </View>
+            <Text style={{ color: wireframeColors.text, fontSize: 16, fontWeight: '800', textAlign: 'center', marginBottom: 8 }}>
+              No capstones found
+            </Text>
+            <Text style={{ color: wireframeColors.muted, fontSize: 13, lineHeight: 20, textAlign: 'center' }}>
+              {hasActiveFilters
+                ? 'Try a broader keyword or clear one of the filters.'
+                : 'Capstones will appear here once archive data is available.'}
+            </Text>
+          </View>
+        ) : (
+          capstones.map((capstone) => {
+            const originalityLabel = capstone.originalityScore == null ? 'N/A' : `${capstone.originalityScore}%`;
+            const originalityBackground =
+              capstone.originalityScore == null
+                ? '#EEF2EF'
+                : capstone.originalityScore >= 90
+                  ? '#EAF6ED'
+                  : '#FFF4D8';
+
+            return (
+              <TouchableOpacity
+                key={capstone.id}
+                onPress={() => navigation.navigate('CapstoneDetail', { capstoneId: capstone.id })}
+                activeOpacity={0.85}
+                style={{
+                  borderRadius: 18,
+                  borderWidth: 1,
+                  borderColor: wireframeColors.line,
+                  backgroundColor: wireframeColors.inputBg,
+                  padding: 14,
+                  marginBottom: 10,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ color: wireframeColors.text, fontSize: 15, fontWeight: '800', flex: 1, paddingRight: 12 }}>
+                    {capstone.title}
+                  </Text>
+                  <View
+                    style={{
+                      borderRadius: 999,
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      backgroundColor: originalityBackground,
+                    }}
+                  >
+                    <Text style={{ color: wireframeColors.text, fontSize: 11, fontWeight: '700' }}>
+                      {originalityLabel}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={{ color: wireframeColors.muted, fontSize: 12, marginTop: 6 }}>
+                  {[capstone.author, capstone.department, capstone.year].filter(Boolean).join(' / ')}
+                </Text>
+                <Text numberOfLines={2} style={{ color: wireframeColors.text, fontSize: 13, lineHeight: 19, marginTop: 10 }}>
+                  {capstone.abstract || 'Abstract unavailable.'}
+                </Text>
+              </TouchableOpacity>
+            );
+          })
+        )}
+      </WireframeCard>
+    </AppLayout>
   );
 };
 
