@@ -89,7 +89,7 @@ const OTPVerificationScreen: React.FC = () => {
     <AuthLayout
       title="Verify email"
       subtitle="Enter the 6-digit code sent to your registered email to finish account setup."
-      topNote="Step 3 of 3"
+      topNote="Step 2 of 2"
       footer={
         <TouchableOpacity onPress={() => navigation.navigate('Login')} activeOpacity={0.85}>
           <Text style={{ color: wireframeColors.accent, textAlign: 'center', fontSize: 14, fontWeight: '700' }}>
