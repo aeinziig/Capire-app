@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
+import type { User } from '@supabase/supabase-js';
 import { supabase } from '@/services/supabase';
 
 export const useAuth = () => {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -23,7 +24,7 @@ export const useAuth = () => {
     );
 
     return () => {
-      supabase.removeSubscription(subscription);
+      subscription.unsubscribe();
     };
   }, []);
 

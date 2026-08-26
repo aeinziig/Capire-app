@@ -1,173 +1,221 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, FlatList, Image } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Text, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import type { CompositeNavigationProp } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootParamList, TabParamList } from '@/navigation/types';
+import { useApp } from '@/context/AppContext';
+import { supabase } from '@/services/supabase';
+import {
+  AppLayout,
+  HeaderIconButton,
+  WireframeCard,
+  WireframePill,
+  useWireframeTheme,
+} from '@/components/wireframe/Wireframe';
 
-type StatItem = {
-  label: string;
-  value: string | number;
-  icon: string;
-  color: string;
-};
-
-type QuickAction = {
-  label: string;
-  icon: string;
-};
-
-type RecentActivity = {
-  id: number;
+type DashboardNavigationProp = CompositeNavigationProp<
+  BottomTabNavigationProp<TabParamList, 'Dashboard'>,
+  NativeStackNavigationProp<RootParamList>
+>;
+type FeatherIconName = keyof typeof Feather.glyphMap;
+type FeaturedResearchItem = {
+  id: string;
   title: string;
-  type: 'capstone' | 'research' | 'bookmark';
-  time: string;
-  department?: string;
+  tag: string;
+  score: string;
 };
+
+const quickActions = [
+  { label: 'Find Capstones', icon: 'search', route: 'Search' as const },
+  { label: 'Propose Topic', icon: 'edit-3', route: 'SubmitTopic' as const },
+  { label: 'Bookmarks', icon: 'bookmark', route: 'Bookmarks' as const },
+  { label: 'Assistant', icon: 'message-circle', route: 'Chatbot' as const },
+] satisfies Array<{ label: string; icon: FeatherIconName; route: 'Search' | 'SubmitTopic' | 'Bookmarks' | 'Chatbot' }>;
 
 const DashboardScreen: React.FC = () => {
-  const userName = 'Alex Johnson'; // In real app, this would come from auth state
+  const navigation = useNavigation<DashboardNavigationProp>();
+  const wireframeColors = useWireframeTheme();
+  const { userName, recentActivities, error, unreadMessageCount } = useApp();
+  const [featuredResearch, setFeaturedResearch] = useState<FeaturedResearchItem[]>([]);
 
-  const stats: StatItem[] = [
-    {
-      label: 'Capstones Reviewed',
-      value: 5,
-      icon: 'edit-2',
-      color: '#2EA95B'
-    },
-    {
-      label: 'Originality Checks',
-      value: 12,
-      icon: 'shield',
-      color: '#FBBF24'
-    },
-    {
-      label: 'Bookmarked Items',
-      value: 8,
-      icon: 'bookmark',
-      color: '#3B82F6'
-    },
-    {
-      label: 'Research Hours',
-      value: '45h',
-      icon: 'clock',
-      color: '#8B5CF6'
-    }
-  ];
+  useEffect(() => {
+    const fetchFeaturedResearch = async () => {
+      const { data, error: queryError } = await supabase
+        .from('capstone_projects')
+        .select('id, title, department, originalityScore')
+        .order('created_at', { ascending: false })
+        .limit(3);
 
-  const quickActions: QuickAction[] = [
-    { label: 'Start Check', icon: 'play-circle' },
-    { label: 'Upload Document', icon: 'upload' },
-    { label: 'Search Capstones', icon: 'search' },
-    { label: 'View Bookmarks', icon: 'bookmark' }
-  ];
+      if (queryError || !data) {
+        setFeaturedResearch([]);
+        return;
+      }
 
-  const recentActivities: RecentActivity[] = [
-    {
-      id: 1,
-      title: 'Reviewed: AI Applications in Early Cancer Detection',
-      type: 'capstone',
-      time: '2 hours ago',
-      department: 'Computer Science'
-    },
-    {
-      id: 2,
-      title: 'Checked originality for literature review section',
-      type: 'research',
-      time: '5 hours ago'
-    },
-    {
-      id: 3,
-      title: 'Blockchain Technology for Secure Voting Systems',
-      type: 'bookmark',
-      time: '1 day ago',
-      department: 'Political Science'
-    }
-  ];
+      setFeaturedResearch(
+        data.map((item) => ({
+          id: String(item.id),
+          title: String(item.title || ''),
+          tag: String(item.department || 'Capstone Project'),
+          score:
+            typeof item.originalityScore === 'number'
+              ? `${item.originalityScore}% originality`
+              : 'Originality pending',
+        }))
+      );
+    };
+
+    void fetchFeaturedResearch();
+  }, []);
 
   return (
-    <View className="flex-1 bg-white">
-      <ScrollView className="p-4" contentContainerClassName="pb-8">
-        {/* Welcome Header */}
-        <View className="mb-6">
-          <Text className="text-2xl font-bold text-gray-800">
-            Welcome back, {userName}!
-          </Text>
-          <Text className="text-sm text-gray-500 mt-1">
-            Ready to work on your capstone project?
-          </Text>
-        </View>
-
-        {/* Stats Cards */}
-        <View className="grid grid-cols-2 gap-4 mb-6">
-          {stats.map((stat, index) => (
-            <View key={index} className="p-4 bg-gray-50 rounded-lg">
-              <View className="flex items-center justify-between mb-2">
-                <View className="flex items-center space-x-2">
-                  <Feather name={stat.icon} size={20} className={`${stat.color}-600`} />
-                  <Text className="font-medium text-gray-700">
-                    {stat.label}
-                  </Text>
-                </View>
-                <Text className="text-2xl font-bold text-gray-800">
-                  {stat.value}
-                </Text>
-              </View>
-              <View className="h-0.5 bg-gray-200" />
+    <AppLayout
+      title={`Hi, ${userName || 'Student'}`}
+      subtitle="Continue your capstone journey with recommendations, saved work, and AI support."
+      headerRight={(
+        <View>
+          <HeaderIconButton icon="bell" onPress={() => navigation.navigate('Notifications')} />
+          {unreadMessageCount > 0 ? (
+            <View
+              style={{
+                position: 'absolute',
+                top: -4,
+                right: -4,
+                minWidth: 20,
+                height: 20,
+                borderRadius: 10,
+                backgroundColor: '#D64545',
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingHorizontal: 5,
+              }}
+            >
+              <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '800' }}>
+                {unreadMessageCount > 99 ? '99+' : unreadMessageCount}
+              </Text>
             </View>
+          ) : null}
+        </View>
+      )}
+    >
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+        {quickActions.map((action) => (
+          <TouchableOpacity
+            key={action.label}
+            onPress={() => navigation.navigate(action.route)}
+            activeOpacity={0.85}
+            style={{
+              width: '48%',
+              borderRadius: 22,
+              backgroundColor: wireframeColors.surface,
+              borderWidth: 1,
+              borderColor: wireframeColors.line,
+              padding: 16,
+            }}
+          >
+            <View
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 14,
+                backgroundColor: wireframeColors.accentSoft,
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: 12,
+              }}
+            >
+              <Feather name={action.icon} size={20} color={wireframeColors.accent} />
+            </View>
+            <Text style={{ color: wireframeColors.text, fontSize: 14, fontWeight: '700' }}>{action.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <WireframeCard style={{ marginBottom: 16 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <Text style={{ color: wireframeColors.text, fontSize: 18, fontWeight: '800' }}>Recommended topics</Text>
+          <TouchableOpacity onPress={() => navigation.navigate('Search')} activeOpacity={0.85}>
+            <Text style={{ color: wireframeColors.accent, fontSize: 13, fontWeight: '700' }}>See all</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
+          {['AI', 'Mobile', 'Healthcare'].map((tag, index) => (
+            <WireframePill key={tag} label={tag} active={index === 0} />
           ))}
         </View>
-
-        {/* Quick Actions */}
-        <View className="mb-6">
-          <Text className="font-semibold text-gray-800 mb-3">
-            Quick Actions
+        {featuredResearch.length === 0 ? (
+          <Text style={{ color: wireframeColors.muted, fontSize: 13 }}>
+            No featured capstones available yet.
           </Text>
-          <View className="grid grid-cols-2 gap-3">
-            {quickActions.map((action, index) => (
-              <TouchableOpacity
-                key={index}
-                activeOpacity={0.7}
-                className="p-4 bg-gray-50 rounded-lg flex items-center justify-center"
+        ) : (
+          featuredResearch.map((item) => (
+            <TouchableOpacity
+              key={item.id}
+              onPress={() => (navigation as unknown as { navigate: (route: keyof RootParamList, params: { capstoneId: string }) => void }).navigate('CapstoneDetail', { capstoneId: item.id })}
+              activeOpacity={0.85}
+              style={{
+                borderRadius: 18,
+                backgroundColor: wireframeColors.inputBg,
+                borderWidth: 1,
+                borderColor: wireframeColors.line,
+                padding: 14,
+                marginBottom: 10,
+              }}
+            >
+              <Text style={{ color: wireframeColors.text, fontSize: 15, fontWeight: '800' }}>{item.title}</Text>
+              <Text style={{ color: wireframeColors.muted, fontSize: 12, marginTop: 5 }}>{item.tag}</Text>
+              <Text style={{ color: wireframeColors.accent, fontSize: 12, fontWeight: '700', marginTop: 10 }}>{item.score}</Text>
+            </TouchableOpacity>
+          ))
+        )}
+      </WireframeCard>
+
+      <WireframeCard>
+        <Text style={{ color: wireframeColors.text, fontSize: 18, fontWeight: '800', marginBottom: 12 }}>Recent activity</Text>
+        {error ? <Text style={{ color: wireframeColors.danger, fontSize: 13, marginBottom: 8 }}>{error}</Text> : null}
+        {recentActivities.length === 0 ? (
+          <Text style={{ color: wireframeColors.muted, fontSize: 13 }}>
+            No activity yet. Start by searching the archive or saving a project.
+          </Text>
+        ) : (
+          recentActivities.map((activity) => (
+            <View
+              key={activity.id}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'flex-start',
+                paddingVertical: 10,
+                borderBottomWidth: 1,
+                borderBottomColor: wireframeColors.line,
+              }}
+            >
+              <View
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 12,
+                  backgroundColor: wireframeColors.accentSoft,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginRight: 12,
+                }}
               >
-                <Feather name={action.icon} size={24} className="text-gray-400" />
-                <Text className="mt-2 text-xs text-center text-gray-600">
-                  {action.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Recent Activity */}
-        <View className="mb-6">
-          <Text className="font-semibold text-gray-800 mb-3">
-            Recent Activity
-          </Text>
-          <View className="space-y-3">
-            {recentActivities.map((activity, index) => (
-              <View key={index} className="p-3 bg-gray-50 rounded-lg flex items-center space-x-3">
-                <View className="w-3 h-3 rounded-full">
-                  {activity.type === 'capstone' && <View className="bg-primary-500" />}
-                  {activity.type === 'research' && <View className="bg-amber-500" />}
-                  {activity.type === 'bookmark' && <View className="bg-blue-500" />}
-                </View>
-                <View className="flex-1">
-                  <Text className="font-medium text-gray-800">
-                    {activity.title}
-                  </Text>
-                  {activity.department && (
-                    <Text className="text-xs text-gray-500 mt-1">
-                      {activity.department}
-                    )
-                  )}
-                </View>
-                <Text className="text-xs text-gray-400">
+                <Feather name="clock" size={16} color={wireframeColors.accent} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: wireframeColors.text, fontSize: 14, fontWeight: '700' }}>{activity.title}</Text>
+                <Text style={{ color: wireframeColors.muted, fontSize: 12, marginTop: 4 }}>
+                  {activity.department ? `${activity.department} • ` : ''}
                   {activity.time}
                 </Text>
               </View>
-            ))}
-          </View>
-        </View>
-      </ScrollView>
-    </View>
+            </View>
+          ))
+        )}
+      </WireframeCard>
+    </AppLayout>
   );
 };
 

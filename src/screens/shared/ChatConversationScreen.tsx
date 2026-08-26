@@ -1,176 +1,502 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, TextInput, FlatList } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Keyboard, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useApp } from '@/context/AppContext';
+import type { RootParamList } from '@/navigation/types';
+import { supabase } from '@/services/supabase';
+import {
+  AppLayout,
+  HeaderIconButton,
+  WireframeCard,
+  useWireframeTheme,
+} from '@/components/wireframe/Wireframe';
 
 type Message = {
   id: string;
   text: string;
   isUser: boolean;
   timestamp: string;
+  status?: 'sending' | 'sent' | 'delivered' | 'read';
 };
 
-type Conversation = {
+type ChatMessageRow = {
   id: string;
-  name: string;
-  avatar?: string;
+  sender_id: string;
+  receiver_id: string;
+  message: string;
+  is_read: boolean | null;
+  created_at: string | null;
 };
 
-const ChatConversationScreen: React.FC<{ conversation: Conversation }> = ({ conversation }) => {
+type UserStatusRow = {
+  id: string;
+  do_not_disturb: boolean | null;
+};
+
+const ChatConversationScreen: React.FC = () => {
+  const colors = useWireframeTheme();
+  const inputTextColor = '#183126';
+  const navigation = useNavigation<NativeStackNavigationProp<RootParamList>>();
+  const route = useRoute();
+  const { user, refreshMessageNotifications } = useApp();
+  const { partnerId, partnerName } = route.params as RootParamList['ChatConversation'];
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [partnerDoNotDisturb, setPartnerDoNotDisturb] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [composerHeight, setComposerHeight] = useState(0);
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const isTypingRef = useRef(false);
+  const shouldStickToBottomRef = useRef(true);
 
-  // Mock initial messages
-  React.useEffect(() => {
-    setMessages([
-      {
-        id: '1',
-        text: 'Hi! How can I help you with your capstone project?',
-        isUser: false,
-        timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString() // 5 minutes ago
-      },
-      {
-        id: '2',
-        text: 'Hey! I was wondering if you could help me brainstorm topics for my computer science capstone.',
-        isUser: true,
-        timestamp: new Date(Date.now() - 1000 * 60 * 4).toISOString() // 4 minutes ago
+  const scrollToBottom = useCallback((animated = true) => {
+    scrollViewRef.current?.scrollToEnd({ animated });
+  }, []);
+
+  const toMessage = useCallback((message: ChatMessageRow): Message => ({
+    id: message.id,
+    text: message.message,
+    isUser: message.sender_id === user?.id,
+    timestamp: message.created_at || new Date().toISOString(),
+    status: message.sender_id === user?.id
+      ? (message.is_read ? 'read' : 'delivered')
+      : undefined,
+  }), [user?.id]);
+
+  const fetchMessages = useCallback(async () => {
+    if (!user) {
+      setMessages([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { data, error: messageError } = await supabase
+        .from('chat_messages')
+        .select('id, sender_id, receiver_id, message, is_read, created_at')
+        .or(`and(sender_id.eq.${user.id},receiver_id.eq.${partnerId}),and(sender_id.eq.${partnerId},receiver_id.eq.${user.id})`)
+        .order('created_at', { ascending: true });
+
+      if (messageError) {
+        throw messageError;
       }
-    ]);
-  }, [conversation]);
 
-  const sendMessage = () => {
-    if (!input.trim()) return;
+      const rows = (data ?? []) as ChatMessageRow[];
+      setMessages(rows.map(toMessage));
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      text: input,
-      isUser: true,
-      timestamp: new Date().toISOString()
+      const unreadIds = rows
+        .filter((message) => message.receiver_id === user.id && !message.is_read)
+        .map((message) => message.id);
+
+      if (unreadIds.length > 0) {
+        await supabase.from('chat_messages').update({ is_read: true }).in('id', unreadIds);
+        await refreshMessageNotifications();
+      }
+    } catch (err) {
+      setMessages([]);
+      setError(err instanceof Error ? err.message : 'Failed to load conversation.');
+    } finally {
+      setLoading(false);
+    }
+  }, [partnerId, refreshMessageNotifications, toMessage, user]);
+
+  const fetchPartnerStatus = useCallback(async () => {
+    const { data, error: partnerError } = await supabase
+      .from('users')
+      .select('id, do_not_disturb')
+      .eq('id', partnerId)
+      .maybeSingle();
+
+    if (!partnerError) {
+      setPartnerDoNotDisturb(Boolean((data as UserStatusRow | null)?.do_not_disturb));
+    }
+  }, [partnerId]);
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+      scrollToBottom(false);
+    });
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
     };
+  }, [scrollToBottom]);
 
-    setMessages(prev => [...prev, userMessage]);
+  useEffect(() => {
+    void fetchMessages();
+    void fetchPartnerStatus();
+
+    if (!user) {
+      return;
+    }
+
+    const channel = supabase
+      .channel(`chat-${user.id}-${partnerId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, (payload) => {
+        const message = payload.new as ChatMessageRow;
+        const isConversationMessage =
+          (message.sender_id === user.id && message.receiver_id === partnerId) ||
+          (message.sender_id === partnerId && message.receiver_id === user.id);
+
+        if (!isConversationMessage) {
+          return;
+        }
+
+        const shouldAutoScroll = shouldStickToBottomRef.current && !isTypingRef.current;
+
+        setMessages((current) => {
+          const existingIndex = current.findIndex((item) => item.id === message.id);
+          if (existingIndex >= 0) {
+            const next = [...current];
+            next[existingIndex] = {
+              ...next[existingIndex],
+              ...toMessage(message),
+            };
+            return next;
+          }
+
+          const optimisticIndex = current.findIndex((item) => (
+            item.isUser &&
+            item.text === message.message &&
+            (item.status === 'sending' || item.status === 'sent')
+          ));
+
+          if (optimisticIndex >= 0) {
+            const next = [...current];
+            next[optimisticIndex] = toMessage(message);
+            return next;
+          }
+
+          return [...current, toMessage(message)];
+        });
+
+        if (message.receiver_id === user.id && !message.is_read) {
+          void supabase.from('chat_messages').update({ is_read: true }).eq('id', message.id);
+          void refreshMessageNotifications();
+        }
+
+        if (shouldAutoScroll) {
+          requestAnimationFrame(() => scrollToBottom());
+        }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chat_messages' }, (payload) => {
+        const message = payload.new as ChatMessageRow;
+        const isConversationMessage =
+          (message.sender_id === user.id && message.receiver_id === partnerId) ||
+          (message.sender_id === partnerId && message.receiver_id === user.id);
+
+        if (!isConversationMessage) {
+          return;
+        }
+
+        const shouldAutoScroll = shouldStickToBottomRef.current && !isTypingRef.current;
+
+        setMessages((current) => current.map((item) => (
+          item.id === message.id ? { ...item, ...toMessage(message) } : item
+        )));
+
+        if (shouldAutoScroll) {
+          requestAnimationFrame(() => scrollToBottom());
+        }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'users', filter: `id=eq.${partnerId}` }, (payload) => {
+        const profile = payload.new as UserStatusRow;
+        setPartnerDoNotDisturb(Boolean(profile.do_not_disturb));
+      })
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [fetchMessages, fetchPartnerStatus, partnerId, refreshMessageNotifications, toMessage, user]);
+
+  const sendMessage = useCallback(async () => {
+    if (!input.trim() || !user) {
+      return;
+    }
+
+    const { data: partnerStatus, error: partnerStatusError } = await supabase
+      .from('users')
+      .select('id, do_not_disturb')
+      .eq('id', partnerId)
+      .maybeSingle();
+
+    if (!partnerStatusError && (partnerStatus as UserStatusRow | null)?.do_not_disturb) {
+      setPartnerDoNotDisturb(true);
+      setError(`${partnerName} has Do Not Disturb enabled right now.`);
+      return;
+    }
+
+    const text = input.trim();
+    const optimisticId = `local-${Date.now()}`;
     setInput('');
+    setError(null);
+    shouldStickToBottomRef.current = true;
+    setMessages((current) => [
+      ...current,
+      {
+        id: optimisticId,
+        text,
+        isUser: true,
+        timestamp: new Date().toISOString(),
+        status: 'sending',
+      },
+    ]);
+    requestAnimationFrame(() => scrollToBottom());
 
-    // Simulate bot response
-    setTimeout(() => {
-      const botResponse: Message = {
-        id: Date.now().toString() + 'b',
-        text: generateBotResponse(input),
-        isUser: false,
-        timestamp: new Date().toISOString()
-      };
-      setMessages(prev => [...prev, botResponse]);
-    }, 1000);
-  };
+    const { error: insertError } = await supabase.from('chat_messages').insert({
+      sender_id: user.id,
+      receiver_id: partnerId,
+      message: text,
+      is_read: false,
+    });
 
-  const generateBotResponse = (userInput: string): string => {
-    const lowerInput = userInput.toLowerCase();
-
-    if (lowerInput.includes('topic') || lowerInput.includes('idea')) {
-      return "Some potential CS capstone topics: 1) AI-powered app for mental health support, 2) Blockchain-based supply chain tracker, 3) AR/VR educational tool, 4) IoT smart home energy optimizer, 5) Machine learning model for predicting stock trends. What interests you most?";
+    if (insertError) {
+      setMessages((current) => current.filter((item) => item.id !== optimisticId));
+      setInput(text);
+      setError(insertError.message);
+      return;
     }
 
-    if (lowerInput.includes('help') || lowerInput.includes('assist')) {
-      return "I can help with topic research, literature review, methodology suggestions, or even code reviews for your project. What do you need assistance with right now?";
-    }
-
-    return "That's interesting! Tell me more about your project goals and what you're hoping to achieve.";
-  };
-
-  const renderMessage = ({ item }: { item: Message }) => (
-    <View className={`mb-4 ${
-      item.isUser ? 'ml-auto' : 'mr-auto'
-    } max-w-[80%]`}>
-      <View className={`${item.isUser
-        ? 'bg-primary-600 text-white'
-        : 'bg-gray-100 text-gray-800'
-      } rounded-lg p-3 max-w-[80%] ${item.isUser
-        ? 'rounded-br-none'
-        : 'rounded-bl-none'
-      }`}>
-        <Text className="text-sm">{item.text}</Text>
-        <Text className="text-xs text-opacity-70 mt-1">
-          {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-        </Text>
-      </View>
-    </View>
-  );
+    setMessages((current) => current.map((item) => (
+      item.id === optimisticId ? { ...item, status: 'sent' } : item
+    )));
+  }, [input, partnerId, partnerName, scrollToBottom, user]);
 
   return (
-    <View className="flex-1 bg-white">
-      <View className="flex items-center justify-between border-b border-gray-200 p-4">
-        <TouchableOpacity
-          onPress={() => {
-            // Go back - in real app would use navigation.goBack()
+    <AppLayout
+      title={partnerName}
+      subtitle="Research chat"
+      headerLeft={<HeaderIconButton icon="chevron-left" onPress={() => navigation.goBack()} />}
+      scroll={false}
+    >
+      <View style={{ flex: 1 }}>
+        <ScrollView
+          ref={scrollViewRef}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: composerHeight + keyboardHeight + 24 }}
+          onContentSizeChange={() => {
+            if (shouldStickToBottomRef.current && !isTypingRef.current) {
+              scrollToBottom(false);
+            }
           }}
-          className="p-2"
+          onScroll={(event) => {
+            const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+            const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+            shouldStickToBottomRef.current = distanceFromBottom < 120;
+          }}
+          scrollEventThrottle={16}
         >
-          <Feather name="chevron-left" size={24} className="text-gray-500" />
-        </TouchableOpacity>
-
-        <View className="flex items-center space-x-3">
-          {conversation.avatar && (
-            <View className="w-10 h-10">
-              {/* In real app, would use Image component */}
-              <View className="w-full h-full bg-gray-300 rounded-full flex items-center justify-center">
-                <Text className="text-xs font-medium text-gray-600">
-                  {conversation.name.charAt(0)}
-                </Text>
-              </View>
-            </View>
-          )}
-          <Text className="font-medium text-gray-800">
-            {conversation.name}
-          </Text>
-        </View>
-
-        <View className="p-2">
-          <Feather name="more-vertical" size={24} className="text-gray-500" />
-        </View>
-      </View>
-
-      <ScrollView
-        className="flex-1 p-4"
-        contentContainerClassName="pb-12"
-        showsVerticalScrollIndicator={false}
-      >
-        {messages.map((message, index) => (
-          <View key={index}>
-            {renderMessage(message)}
-          }
-        ))}
-      </ScrollView>
-
-      <View className="border-t border-gray-200 p-4 bg-white">
-        <View className="flex items-center space-x-3">
-          <TextInput
-            placeholder="Type a message..."
-            value={input}
-            onChangeText={setInput}
-            onSubmitEditing={sendMessage}
-            className="flex-1 border border-gray-300 rounded-lg p-4 focus:border-primary-500 focus:ring-2 focus:ring-primary-200 text-base"
-          />
-
           <TouchableOpacity
-            onPress={sendMessage}
-            disabled={!input.trim()}
-            className={`p-3 rounded-lg ${!input.trim()
-              ? 'bg-gray-300'
-              : 'bg-primary-600'
-            }`}
+            activeOpacity={0.88}
+            onPress={() => navigation.navigate('OtherUserProfile', { userId: partnerId })}
           >
-            <Feather
-              name="send"
-              size={20}
-              className={`${!input.trim()
-                ? 'text-gray-400'
-                : 'text-white'
-              }`}
-            />
+            <WireframeCard style={{ marginBottom: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 18,
+                    backgroundColor: colors.accentSoft,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginRight: 12,
+                  }}
+                >
+                  <Text style={{ color: colors.accent, fontWeight: '800', fontSize: 18 }}>{partnerName.charAt(0).toUpperCase()}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.text, fontSize: 16, fontWeight: '800' }}>{partnerName}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Tap to open research profile</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color={colors.muted} />
+              </View>
+            </WireframeCard>
           </TouchableOpacity>
+
+          {partnerDoNotDisturb ? (
+            <WireframeCard style={{ marginBottom: 12 }}>
+              <Text style={{ color: colors.accent, fontSize: 13, fontWeight: '700' }}>
+                {partnerName} has Do Not Disturb enabled right now. New messages are paused.
+              </Text>
+            </WireframeCard>
+          ) : null}
+
+          <WireframeCard style={{ marginBottom: 12 }}>
+            <Text style={{ color: colors.text, fontSize: 16, fontWeight: '800', marginBottom: 6 }}>Conversation</Text>
+            <Text style={{ color: colors.muted, fontSize: 12 }}>
+              Real-time capstone discussion with delivery and read updates.
+            </Text>
+          </WireframeCard>
+
+          {loading ? (
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 32 }}>
+              <ActivityIndicator color={colors.accent} />
+              <Text style={{ marginTop: 12, color: colors.muted }}>Loading conversation...</Text>
+            </View>
+          ) : (
+            <>
+              {messages.map((item) => (
+                <View
+                  key={item.id}
+                  style={{
+                    flexDirection: item.isUser ? 'row-reverse' : 'row',
+                    alignItems: 'flex-end',
+                    marginBottom: 12,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 12,
+                      backgroundColor: item.isUser ? colors.accent : colors.accentSoft,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginLeft: item.isUser ? 10 : 0,
+                      marginRight: item.isUser ? 0 : 10,
+                    }}
+                  >
+                    <Text style={{ color: item.isUser ? '#FFFFFF' : colors.accent, fontSize: 12, fontWeight: '800' }}>
+                      {item.isUser ? 'Y' : partnerName.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <View style={{ maxWidth: '78%' }}>
+                    <Text
+                      style={{
+                        color: colors.muted,
+                        fontSize: 11,
+                        fontWeight: '700',
+                        marginBottom: 6,
+                        textAlign: item.isUser ? 'right' : 'left',
+                      }}
+                    >
+                      {item.isUser ? 'You' : partnerName}
+                    </Text>
+                    <View
+                      style={{
+                        borderRadius: 22,
+                        paddingHorizontal: 16,
+                        paddingVertical: 14,
+                        backgroundColor: item.isUser ? colors.accent : colors.surface,
+                        borderWidth: item.isUser ? 0 : 1,
+                        borderColor: colors.line,
+                      }}
+                    >
+                      <Text style={{ color: item.isUser ? '#FFFFFF' : colors.text, fontSize: 14, lineHeight: 20 }}>{item.text}</Text>
+                      <Text style={{ color: item.isUser ? '#D8F3DC' : colors.muted, fontSize: 11, marginTop: 8 }}>
+                        {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {item.isUser && item.status ? ` | ${formatMessageStatus(item.status)}` : ''}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ))}
+              {messages.length === 0 ? (
+                <View
+                  style={{
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: colors.line,
+                    backgroundColor: colors.surface,
+                    padding: 18,
+                    marginBottom: 12,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontSize: 14, fontWeight: '700' }}>No messages yet</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 6 }}>
+                    Start the conversation with a research question, update, or feedback note.
+                  </Text>
+                </View>
+              ) : null}
+              {error ? (
+                <Text style={{ color: colors.danger, fontSize: 12, marginTop: 8 }}>{error}</Text>
+              ) : null}
+            </>
+          )}
+        </ScrollView>
+
+        <View
+          onLayout={(event) => setComposerHeight(event.nativeEvent.layout.height)}
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: keyboardHeight,
+          }}
+        >
+          <WireframeCard>
+          <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', marginBottom: 10 }}>Reply</Text>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              minHeight: 60,
+              borderRadius: 20,
+              backgroundColor: '#FAFCFA',
+              borderWidth: 1,
+              borderColor: colors.line,
+              paddingHorizontal: 16,
+            }}
+          >
+            <TextInput
+              placeholder="Type a message..."
+              placeholderTextColor="#95A79D"
+              value={input}
+              onChangeText={(value) => {
+                isTypingRef.current = value.trim().length > 0;
+                setInput(value);
+              }}
+              onSubmitEditing={() => void sendMessage()}
+              editable={!partnerDoNotDisturb}
+              multiline
+              onFocus={() => {
+                isTypingRef.current = true;
+              }}
+              onBlur={() => {
+                isTypingRef.current = input.trim().length > 0;
+              }}
+              style={{ flex: 1, color: inputTextColor, fontSize: 14, maxHeight: 96, paddingVertical: 12 }}
+            />
+            <TouchableOpacity
+              onPress={() => void sendMessage()}
+              disabled={!input.trim() || partnerDoNotDisturb}
+              activeOpacity={0.85}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 14,
+                backgroundColor: !input.trim() || partnerDoNotDisturb ? colors.accentSoft : colors.accent,
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginLeft: 12,
+              }}
+            >
+              <Feather name="send" size={18} color={!input.trim() || partnerDoNotDisturb ? colors.muted : '#FFFFFF'} />
+            </TouchableOpacity>
+          </View>
+          </WireframeCard>
         </View>
       </View>
-    </View>
+    </AppLayout>
   );
 };
+
+const formatMessageStatus = (status: NonNullable<Message['status']>) => (
+  status.charAt(0).toUpperCase() + status.slice(1)
+);
 
 export default ChatConversationScreen;

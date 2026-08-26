@@ -6,7 +6,6 @@
 ❌ **Data Layer**: All data-displaying screens use mock data instead of Supabase queries
 
 ### Screens Requiring Database Integration
-1. **SearchScreen.tsx** - Capstone search results
 2. **CapstoneDetailScreen.tsx** - Individual capstone details
 3. **BookmarksScreen.tsx** - User's bookmarked projects
 4. **DashboardScreen.tsx** - Stats, quick actions, recent activities
