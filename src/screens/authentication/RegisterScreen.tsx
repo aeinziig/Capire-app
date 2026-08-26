@@ -69,8 +69,11 @@ const RegisterScreen: React.FC = () => {
 
       if (signUpError) throw signUpError;
       if (!data.session) {
-        navigation.navigate('Login');
+        navigation.navigate('OTPVerification', { email: email.trim() });
+        return;
       }
+
+      navigation.navigate('MainTabs');
     } catch (err: unknown) {
       setError(mapAuthError(err));
     } finally {
@@ -82,7 +85,7 @@ const RegisterScreen: React.FC = () => {
     <AuthLayout
       title="Create account"
       subtitle="Set up your account with your institutional email."
-      topNote="Step 1 of 1"
+      topNote="Step 1 of 2"
       footer={
         <TouchableOpacity onPress={() => navigation.navigate('Login')} activeOpacity={0.85}>
           <Text style={{ color: wireframeColors.accent, textAlign: 'center', fontSize: 14, fontWeight: '700' }}>
